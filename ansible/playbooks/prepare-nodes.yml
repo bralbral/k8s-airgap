@@ -1,0 +1,133 @@
+---
+- name: Prepare Debian 12 Kubernetes nodes from an offline bundle
+  hosts: control_plane:workers
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Require Debian 12
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == 'Debian'
+          - ansible_distribution_major_version == '12'
+        fail_msg: This playbook supports Debian 12 only.
+
+    - name: Disable swap immediately
+      ansible.builtin.command: swapoff -a
+      changed_when: false
+
+    - name: Disable swap in fstab
+      ansible.builtin.replace:
+        path: /etc/fstab
+        regexp: '^(?!#)([^\\n]*\\s+swap\\s+[^\\n]*)$'
+        replace: '# \\1'
+
+    - name: Load Kubernetes kernel modules at boot
+      ansible.builtin.copy:
+        dest: /etc/modules-load.d/k8s.conf
+        mode: '0644'
+        content: "overlay\\nbr_netfilter\\n"
+
+    - name: Configure Kubernetes sysctls
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/99-kubernetes-cri.conf
+        mode: '0644'
+        content: "net.bridge.bridge-nf-call-iptables = 1\\nnet.bridge.bridge-nf-call-ip6tables = 1\\nnet.ipv4.ip_forward = 1\\n"
+
+    - name: Apply kernel modules and sysctls
+      ansible.builtin.shell: |
+        modprobe overlay
+        modprobe br_netfilter
+        sysctl --system
+      changed_when: false
+
+    - name: Create local persistent-volume path
+      ansible.builtin.file:
+        path: "{{ local_path }}"
+        state: directory
+        mode: '0770'
+
+    - name: Require transferred offline bundle
+      ansible.builtin.stat:
+        path: "{{ bundle_root }}/tools/kubeadm"
+      register: bundle
+
+    - name: Stop when the bundle is absent
+      ansible.builtin.assert:
+        that: bundle.stat.exists
+        fail_msg: Copy the unpacked release directory to {{ bundle_root }} before running this playbook.
+
+    - name: Install Kubernetes command binaries
+      ansible.builtin.copy:
+        remote_src: true
+        src: "{{ bundle_root }}/tools/{{ item }}"
+        dest: "/usr/local/bin/{{ item }}"
+        mode: '0755'
+      loop: [kubeadm, kubelet, kubectl, crictl]
+
+    - name: Install containerd binaries
+      ansible.builtin.unarchive:
+        remote_src: true
+        src: "{{ bundle_root }}/tools/containerd.tar.gz"
+        dest: /usr/local
+
+    - name: Install runc and CNI plugins
+      block:
+        - ansible.builtin.file:
+            path: /opt/cni/bin
+            state: directory
+            mode: '0755'
+        - ansible.builtin.copy:
+            remote_src: true
+            src: "{{ bundle_root }}/tools/runc"
+            dest: /usr/local/sbin/runc
+            mode: '0755'
+        - ansible.builtin.unarchive:
+            remote_src: true
+            src: "{{ bundle_root }}/tools/cni-plugins.tgz"
+            dest: /opt/cni/bin
+
+    - name: Install containerd and kubelet service units
+      block:
+        - ansible.builtin.copy:
+            dest: /usr/local/lib/systemd/system/containerd.service
+            mode: '0644'
+            content: |
+              [Unit]
+              Description=containerd container runtime
+              Documentation=https://containerd.io
+              After=network.target local-fs.target
+              [Service]
+              ExecStartPre=-/sbin/modprobe overlay
+              ExecStart=/usr/local/bin/containerd
+              Delegate=yes
+              KillMode=process
+              Restart=always
+              RestartSec=5
+              LimitNOFILE=infinity
+              [Install]
+              WantedBy=multi-user.target
+        - ansible.builtin.template:
+            src: ../templates/kubelet.service.j2
+            dest: /usr/local/lib/systemd/system/kubelet.service
+            mode: '0644'
+        - ansible.builtin.systemd_service:
+            daemon_reload: true
+
+    - name: Configure containerd systemd cgroups
+      ansible.builtin.template:
+        src: ../templates/config.toml.j2
+        dest: "{{ containerd_config }}"
+        mode: '0644'
+      notify: Restart containerd
+
+    - name: Enable containerd and kubelet
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        enabled: true
+      loop: [containerd, kubelet]
+
+  handlers:
+    - name: Restart containerd
+      ansible.builtin.systemd_service:
+        name: containerd
+        state: restarted

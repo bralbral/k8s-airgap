@@ -1,0 +1,7 @@
+bundle/
+dist/
+ansible/inventory/hosts.yml
+*.retry
+*.tar
+*.tar.zst
+*.part-*

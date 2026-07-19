@@ -1,0 +1,16 @@
+---
+- name: Join worker nodes
+  hosts: workers
+  become: true
+  vars:
+    join_command: "{{ hostvars[groups['control_plane'][0]].worker_join_command | default('') }}"
+  tasks:
+    - name: Require a join command
+      ansible.builtin.assert:
+        that: join_command | length > 0
+        fail_msg: Run init-control-plane.yml first, or pass -e join_command='kubeadm join ...'.
+
+    - name: Join worker node
+      ansible.builtin.command: "{{ join_command }} --cri-socket unix:///run/containerd/containerd.sock"
+      args:
+        creates: /etc/kubernetes/kubelet.conf

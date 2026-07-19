@@ -1,0 +1,2 @@
+# One immutable image reference per line. kubeadm and Flannel images are added automatically.
+# Example: quay.io/prometheus-operator/prometheus-operator:v0.86.1

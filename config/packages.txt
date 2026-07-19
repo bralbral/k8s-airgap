@@ -1,0 +1,10 @@
+# A minimal Debian 12 base system is a prerequisite.
+ca-certificates
+curl
+conntrack
+socat
+ipset
+iptables
+ethtool
+nfs-common
+util-linux

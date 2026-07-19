@@ -1,0 +1,25 @@
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate shell syntax
+        run: |
+          bash -n scripts/build-bundle.sh
+          bash -n scripts/verify-bundle.sh
+          bash -n scripts/import-images-to-harbor.sh
+      - name: Validate YAML
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y yamllint
+          yamllint -d '{extends: default, rules: {line-length: disable}}' config ansible .github

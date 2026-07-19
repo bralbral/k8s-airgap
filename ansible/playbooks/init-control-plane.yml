@@ -1,0 +1,32 @@
+---
+- name: Initialise the first control-plane node
+  hosts: control_plane[0]
+  become: true
+  tasks:
+    - name: Render kubeadm configuration
+      ansible.builtin.template:
+        src: ../templates/kubeadm-init.yaml.j2
+        dest: /root/kubeadm-init.yaml
+        mode: '0600'
+
+    - name: Initialise control plane
+      ansible.builtin.command: kubeadm init --config /root/kubeadm-init.yaml --upload-certs
+      args:
+        creates: /etc/kubernetes/admin.conf
+
+    - name: Install Flannel
+      ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f {{ bundle_root }}/manifests/flannel.yaml
+      changed_when: true
+
+    - name: Install local-path provisioner
+      ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f {{ bundle_root }}/manifests/local-path-provisioner.yaml
+      changed_when: true
+
+    - name: Create worker join command
+      ansible.builtin.command: kubeadm token create --print-join-command
+      register: join_command
+      changed_when: false
+
+    - name: Store worker join command
+      ansible.builtin.set_fact:
+        worker_join_command: "{{ join_command.stdout }}"
