@@ -14,12 +14,24 @@
       args:
         creates: /etc/kubernetes/admin.conf
 
+    - name: Render offline Flannel manifest
+      ansible.builtin.template:
+        src: ../templates/flannel.yaml.j2
+        dest: /root/flannel.yaml
+        mode: '0600'
+
     - name: Install Flannel
-      ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f {{ bundle_root }}/manifests/flannel.yaml
+      ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f /root/flannel.yaml
       changed_when: true
 
+    - name: Render offline local-path provisioner manifest
+      ansible.builtin.template:
+        src: ../templates/local-path-provisioner.yaml.j2
+        dest: /root/local-path-provisioner.yaml
+        mode: '0600'
+
     - name: Install local-path provisioner
-      ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f {{ bundle_root }}/manifests/local-path-provisioner.yaml
+      ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f /root/local-path-provisioner.yaml
       changed_when: true
 
     - name: Create worker join command

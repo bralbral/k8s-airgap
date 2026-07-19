@@ -13,12 +13,19 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ -n "${registry}" && -n "${project}" && -n "${bundle_dir:-}" ]] || usage
-command -v crane >/dev/null || { echo "crane is required" >&2; exit 1; }
+if command -v crane >/dev/null; then
+  crane_bin="$(command -v crane)"
+elif [[ -x "${bundle_dir}/tools/crane" ]]; then
+  crane_bin="${bundle_dir}/tools/crane"
+else
+  echo "crane is required" >&2
+  exit 1
+fi
 
 args=()
 ${insecure} && args+=(--insecure)
 while read -r image; do
   source_tar="${bundle_dir}/images/$(echo "${image}" | tr '/:@' '_').tar"
   target="${registry}/${project}/${image##*/}"
-  crane push "${args[@]}" "${source_tar}" "${target}"
+  "${crane_bin}" push "${args[@]}" "${source_tar}" "${target}"
 done < "${bundle_dir}/images.txt"

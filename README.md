@@ -15,9 +15,9 @@ The current scaffold downloads the core binaries and Kubernetes/Flannel image se
 
 ## Installation flow
 
-1. Run the `Build offline bundle` workflow or tag a release.
-2. Transfer release assets and `SHA256SUMS` into the isolated network.
-3. Verify the archive with `scripts/verify-bundle.sh`.
+1. Run the `Build offline bundle` workflow manually.
+2. Transfer the `.tar.zst` release asset and its `.sha256` file into the isolated network.
+3. Verify the release asset, unpack it, then verify its contents with the bundled `scripts/verify-bundle.sh`.
 4. Import images into Harbor.
 5. Adjust `ansible/inventory/hosts.example.yml`, copy it to `hosts.yml` and run the playbooks.
 

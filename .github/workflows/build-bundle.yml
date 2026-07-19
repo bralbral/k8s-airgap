@@ -72,6 +72,9 @@ jobs:
             echo "| crictl | ${CRICTL_VERSION} |"
             echo "| CNI plugins | ${CNI_PLUGINS_VERSION} |"
             echo "| Flannel | ${FLANNEL_VERSION} |"
+            echo "| Flannel CNI plugin | ${FLANNEL_CNI_PLUGIN_VERSION} |"
+            echo "| Local-path provisioner | ${LOCAL_PATH_PROVISIONER_VERSION} |"
+            echo "| BusyBox helper | ${BUSYBOX_VERSION} |"
             echo "| Helm | ${HELM_VERSION} |"
             echo "| K9s | ${K9S_VERSION} |"
             echo
