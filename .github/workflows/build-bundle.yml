@@ -23,7 +23,7 @@ jobs:
       - name: Build bundle
         run: scripts/build-bundle.sh
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: k8s-airgap-bundle
           path: dist/*.tar.zst
