@@ -1,6 +1,7 @@
+---
 name: Build offline bundle
 
-on:
+"on":
   workflow_dispatch:
   push:
     tags: ['bundle-v*']
@@ -12,11 +13,11 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install crane
         run: |
           source config/versions.env
-          curl --fail --location --retry 4 -o crane.tar.gz "https://github.com/google/go-containerregistry/releases/download/v${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz"
+          curl --fail --location --retry 4 -o crane.tar.gz "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz"
           tar -xzf crane.tar.gz crane
           sudo install -m 0755 crane /usr/local/bin/crane
       - name: Build bundle

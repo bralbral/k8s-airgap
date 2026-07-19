@@ -1,3 +1,4 @@
+---
 clusterName: airgap
 kubernetesVersion: v1.34.3
 podSubnet: 10.244.0.0/16

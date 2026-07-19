@@ -1,6 +1,7 @@
+---
 name: Validate
 
-on:
+"on":
   pull_request:
   push:
     branches: [main]
@@ -12,7 +13,7 @@ jobs:
   validate:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Validate shell syntax
         run: |
           bash -n scripts/build-bundle.sh

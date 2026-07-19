@@ -1,2 +1,3 @@
+---
 bundle_root: /opt/k8s-airgap
 containerd_config: /etc/containerd/config.toml
