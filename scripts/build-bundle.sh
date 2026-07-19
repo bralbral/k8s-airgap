@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+trap 'echo "Build failed at line ${LINENO}: ${BASH_COMMAND}" >&2' ERR
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${repo_root}/config/versions.env"
@@ -65,7 +66,7 @@ chmod 0755 "${tools_dir}/runc"
 
 "${tools_dir}/kubeadm" config images list --kubernetes-version "${KUBERNETES_VERSION}" > "${out_dir}/images.txt"
 printf 'ghcr.io/flannel-io/flannel:%s\n' "${FLANNEL_VERSION}" >> "${out_dir}/images.txt"
-grep -Ev '^#|^$' "${repo_root}/config/extra-images.txt" >> "${out_dir}/images.txt"
+grep -Ev '^#|^$' "${repo_root}/config/extra-images.txt" >> "${out_dir}/images.txt" || true
 sort -u -o "${out_dir}/images.txt" "${out_dir}/images.txt"
 
 if command -v crane >/dev/null; then
