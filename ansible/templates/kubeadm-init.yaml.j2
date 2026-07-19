@@ -10,7 +10,6 @@ kind: ClusterConfiguration
 clusterName: airgap
 kubernetesVersion: "{{ kube_version }}"
 controlPlaneEndpoint: "{{ control_plane_endpoint }}"
-imageRepository: "{{ harbor_registry }}/{{ harbor_project }}"
 networking:
   podSubnet: "{{ pod_subnet }}"
   serviceSubnet: "{{ service_subnet }}"

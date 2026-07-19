@@ -1,3 +1,12 @@
 ---
 bundle_root: /opt/k8s-airgap
 containerd_config: /etc/containerd/config.toml
+containerd_registry_mirrors:
+  - upstream: docker.io
+    project: docker
+  - upstream: ghcr.io
+    project: ghcr
+  - upstream: quay.io
+    project: quay
+  - upstream: registry.k8s.io
+    project: k8s

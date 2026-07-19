@@ -1,2 +1,3 @@
 # One immutable image reference per line. kubeadm and Flannel images are added automatically.
+# Supported registries: docker.io, ghcr.io, quay.io and registry.k8s.io.
 # Example: quay.io/prometheus-operator/prometheus-operator:v0.86.1

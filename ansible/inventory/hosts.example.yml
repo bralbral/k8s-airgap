@@ -8,7 +8,8 @@ all:
     service_subnet: 10.96.0.0/12
     control_plane_endpoint: k8s-api.internal:6443
     harbor_registry: harbor.internal
-    harbor_project: k8s
+    harbor_plain_http: false
+    harbor_skip_tls_verify: true
     local_path: /var/local-path-provisioner
   children:
     control_plane:

@@ -26,6 +26,8 @@ mkdir -p \
   "${out_dir}/ansible/templates"
 cp "${repo_root}/config/versions.env" "${out_dir}/manifest.env"
 cp "${repo_root}/config/cluster-defaults.yaml" "${out_dir}/cluster-defaults.yaml"
+cp "${repo_root}/README.md" "${out_dir}/README.md"
+cp "${repo_root}/INSTALL.md" "${out_dir}/INSTALL.md"
 cp -R "${repo_root}/ansible/." "${out_dir}/ansible/"
 cp -R "${repo_root}/manifests/." "${out_dir}/manifests/source/"
 cp "${repo_root}/scripts/verify-bundle.sh" "${out_dir}/scripts/verify-bundle.sh"
@@ -84,23 +86,13 @@ fetch "https://github.com/flannel-io/flannel/releases/download/${FLANNEL_VERSION
 fetch "https://raw.githubusercontent.com/rancher/local-path-provisioner/${LOCAL_PATH_PROVISIONER_VERSION}/deploy/local-path-storage.yaml" "${local_path_manifest}"
 
 sed \
-  -e "s|ghcr.io/flannel-io/flannel:${FLANNEL_VERSION}|{{ harbor_registry }}/{{ harbor_project }}/flannel:${FLANNEL_VERSION}|g" \
-  -e "s|ghcr.io/flannel-io/flannel-cni-plugin:${FLANNEL_CNI_PLUGIN_VERSION}|{{ harbor_registry }}/{{ harbor_project }}/flannel-cni-plugin:${FLANNEL_CNI_PLUGIN_VERSION}|g" \
   -e 's|"10.244.0.0/16"|"{{ pod_subnet }}"|g' \
   "${flannel_manifest}" > "${out_dir}/ansible/templates/flannel.yaml.j2"
 
 sed \
-  -e "s|docker.io/rancher/local-path-provisioner:${LOCAL_PATH_PROVISIONER_VERSION}|{{ harbor_registry }}/{{ harbor_project }}/local-path-provisioner:${LOCAL_PATH_PROVISIONER_VERSION}|g" \
-  -e "s|docker.io/library/busybox|{{ harbor_registry }}/{{ harbor_project }}/busybox:${BUSYBOX_VERSION}|g" \
+  -e "s|docker.io/library/busybox|docker.io/library/busybox:${BUSYBOX_VERSION}|g" \
   -e 's|/opt/local-path-provisioner|{{ local_path }}|g' \
   "${local_path_manifest}" > "${out_dir}/ansible/templates/local-path-provisioner.yaml.j2"
-
-if grep -Eq '^[[:space:]]*image:[[:space:]]+(docker\.io|ghcr\.io|registry\.k8s\.io)' \
-  "${out_dir}/ansible/templates/flannel.yaml.j2" \
-  "${out_dir}/ansible/templates/local-path-provisioner.yaml.j2"; then
-  echo "Generated manifests contain unresolved external image references" >&2
-  exit 1
-fi
 
 "${tools_dir}/kubeadm" config images list --kubernetes-version "${KUBERNETES_VERSION}" > "${out_dir}/images.txt"
 printf 'ghcr.io/flannel-io/flannel:%s\n' "${FLANNEL_VERSION}" >> "${out_dir}/images.txt"
@@ -109,6 +101,11 @@ printf 'docker.io/rancher/local-path-provisioner:%s\n' "${LOCAL_PATH_PROVISIONER
 printf 'docker.io/library/busybox:%s\n' "${BUSYBOX_VERSION}" >> "${out_dir}/images.txt"
 grep -Ev '^#|^$' "${repo_root}/config/extra-images.txt" >> "${out_dir}/images.txt" || true
 sort -u -o "${out_dir}/images.txt" "${out_dir}/images.txt"
+
+if grep -Ev '^(docker\.io|ghcr\.io|quay\.io|registry\.k8s\.io)/[^[:space:]]+:[^[:space:]]+$' "${out_dir}/images.txt"; then
+  echo "Every image must use a pinned tag and a configured source registry" >&2
+  exit 1
+fi
 
 while read -r image; do
   name="$(echo "${image}" | tr '/:@' '_')"

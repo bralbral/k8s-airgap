@@ -88,6 +88,10 @@
 
     - name: Install containerd and kubelet service units
       block:
+        - ansible.builtin.file:
+            path: /usr/local/lib/systemd/system
+            state: directory
+            mode: '0755'
         - ansible.builtin.copy:
             dest: /usr/local/lib/systemd/system/containerd.service
             mode: '0644'
@@ -113,7 +117,35 @@
         - ansible.builtin.systemd_service:
             daemon_reload: true
 
-    - name: Configure containerd systemd cgroups
+    - name: Create containerd configuration directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /etc/containerd
+        - /etc/containerd/certs.d
+
+    - name: Create containerd registry mirror directories
+      ansible.builtin.file:
+        path: "/etc/containerd/certs.d/{{ registry_mirror.upstream }}"
+        state: directory
+        mode: '0755'
+      loop: "{{ containerd_registry_mirrors }}"
+      loop_control:
+        loop_var: registry_mirror
+
+    - name: Configure containerd registry mirrors
+      ansible.builtin.template:
+        src: ../templates/registry-hosts.toml.j2
+        dest: "/etc/containerd/certs.d/{{ registry_mirror.upstream }}/hosts.toml"
+        mode: '0644'
+      loop: "{{ containerd_registry_mirrors }}"
+      loop_control:
+        loop_var: registry_mirror
+      notify: Restart containerd
+
+    - name: Configure containerd
       ansible.builtin.template:
         src: ../templates/config.toml.j2
         dest: "{{ containerd_config }}"
@@ -124,6 +156,7 @@
       ansible.builtin.systemd_service:
         name: "{{ item }}"
         enabled: true
+        state: started
       loop: [containerd, kubelet]
 
   handlers:

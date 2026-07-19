@@ -1,0 +1,4 @@
+[host."{{ 'http' if (harbor_plain_http | default(false)) else 'https' }}://{{ harbor_registry }}/v2/{{ registry_mirror.project }}"]
+  capabilities = ["pull", "resolve"]
+  override_path = true
+{{ '  skip_verify = true' if (harbor_skip_tls_verify | default(true)) and not (harbor_plain_http | default(false)) else '' }}
