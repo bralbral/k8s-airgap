@@ -19,7 +19,18 @@ cp "${repo_root}/config/cluster-defaults.yaml" "${out_dir}/cluster-defaults.yaml
 
 fetch() {
   local url="$1" destination="$2"
-  curl --fail --location --retry 4 --proto '=https' --tlsv1.2 --output "${destination}" "${url}"
+  local partial="${destination}.part"
+  if [[ -s "${destination}" ]]; then
+    echo "Reusing ${destination}"
+    return
+  fi
+  curl --fail --location \
+    --retry 4 --retry-all-errors \
+    --connect-timeout 20 --max-time 300 \
+    --continue-at - \
+    --proto '=https' --tlsv1.2 \
+    --output "${partial}" "${url}"
+  mv "${partial}" "${destination}"
 }
 
 arch=amd64
@@ -28,18 +39,24 @@ fetch "https://dl.k8s.io/release/${KUBERNETES_VERSION}/bin/linux/${arch}/kubectl
 fetch "https://dl.k8s.io/release/${KUBERNETES_VERSION}/bin/linux/${arch}/kubelet" "${tools_dir}/kubelet"
 chmod 0755 "${tools_dir}/kubeadm" "${tools_dir}/kubectl" "${tools_dir}/kubelet"
 
-fetch "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" "${tools_dir}/helm.tar.gz"
-tar -xzf "${tools_dir}/helm.tar.gz" -C "${tools_dir}"
-mv "${tools_dir}/linux-amd64/helm" "${tools_dir}/helm"
-rm -rf "${tools_dir}/linux-amd64" "${tools_dir}/helm.tar.gz"
+if [[ ! -x "${tools_dir}/helm" ]]; then
+  fetch "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" "${tools_dir}/helm.tar.gz"
+  tar -xzf "${tools_dir}/helm.tar.gz" -C "${tools_dir}"
+  mv "${tools_dir}/linux-amd64/helm" "${tools_dir}/helm"
+  rm -rf "${tools_dir}/linux-amd64" "${tools_dir}/helm.tar.gz"
+fi
 
-fetch "https://github.com/derailed/k9s/releases/download/${K9S_VERSION}/k9s_Linux_amd64.tar.gz" "${tools_dir}/k9s.tar.gz"
-tar -xzf "${tools_dir}/k9s.tar.gz" -C "${tools_dir}" k9s
-rm "${tools_dir}/k9s.tar.gz"
+if [[ ! -x "${tools_dir}/k9s" ]]; then
+  fetch "https://github.com/derailed/k9s/releases/download/${K9S_VERSION}/k9s_Linux_amd64.tar.gz" "${tools_dir}/k9s.tar.gz"
+  tar -xzf "${tools_dir}/k9s.tar.gz" -C "${tools_dir}" k9s
+  rm "${tools_dir}/k9s.tar.gz"
+fi
 
-fetch "https://github.com/kubernetes-sigs/cri-tools/releases/download/${CRICTL_VERSION}/crictl-${CRICTL_VERSION}-linux-amd64.tar.gz" "${tools_dir}/crictl.tar.gz"
-tar -xzf "${tools_dir}/crictl.tar.gz" -C "${tools_dir}"
-rm "${tools_dir}/crictl.tar.gz"
+if [[ ! -x "${tools_dir}/crictl" ]]; then
+  fetch "https://github.com/kubernetes-sigs/cri-tools/releases/download/${CRICTL_VERSION}/crictl-${CRICTL_VERSION}-linux-amd64.tar.gz" "${tools_dir}/crictl.tar.gz"
+  tar -xzf "${tools_dir}/crictl.tar.gz" -C "${tools_dir}"
+  rm "${tools_dir}/crictl.tar.gz"
+fi
 
 fetch "https://github.com/containernetworking/plugins/releases/download/${CNI_PLUGINS_VERSION}/cni-plugins-linux-amd64-${CNI_PLUGINS_VERSION}.tgz" "${tools_dir}/cni-plugins.tgz"
 fetch "https://github.com/containerd/containerd/releases/download/v${CONTAINERD_VERSION}/containerd-${CONTAINERD_VERSION}-linux-amd64.tar.gz" "${tools_dir}/containerd.tar.gz"
