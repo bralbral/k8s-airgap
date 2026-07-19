@@ -3,7 +3,7 @@ all:
   vars:
     ansible_user: deploy
     ansible_become: true
-    kube_version: v1.34.3
+    kube_version: v1.36.2
     pod_subnet: 10.244.0.0/16
     service_subnet: 10.96.0.0/12
     control_plane_endpoint: k8s-api.internal:6443

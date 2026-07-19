@@ -1,7 +1,7 @@
-version = 2
+version = 3
 
-[plugins."io.containerd.grpc.v1.cri"]
-  sandbox_image = "{{ harbor_registry }}/{{ harbor_project }}/pause:3.10"
+[plugins."io.containerd.cri.v1.images".pinned_images]
+  sandbox = "{{ harbor_registry }}/{{ harbor_project }}/pause:3.10.2"
 
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+[plugins."io.containerd.cri.v1.runtime".containerd.runtimes.runc.options]
   SystemdCgroup = true

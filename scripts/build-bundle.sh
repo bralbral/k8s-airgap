@@ -28,7 +28,7 @@ fetch "https://dl.k8s.io/release/${KUBERNETES_VERSION}/bin/linux/${arch}/kubectl
 fetch "https://dl.k8s.io/release/${KUBERNETES_VERSION}/bin/linux/${arch}/kubelet" "${tools_dir}/kubelet"
 chmod 0755 "${tools_dir}/kubeadm" "${tools_dir}/kubectl" "${tools_dir}/kubelet"
 
-fetch "https://github.com/helm/helm/releases/download/${HELM_VERSION}/helm-${HELM_VERSION}-linux-amd64.tar.gz" "${tools_dir}/helm.tar.gz"
+fetch "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" "${tools_dir}/helm.tar.gz"
 tar -xzf "${tools_dir}/helm.tar.gz" -C "${tools_dir}"
 mv "${tools_dir}/linux-amd64/helm" "${tools_dir}/helm"
 rm -rf "${tools_dir}/linux-amd64" "${tools_dir}/helm.tar.gz"

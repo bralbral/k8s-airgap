@@ -1,5 +1,5 @@
 # chart=version
-flannel=0.28.0
-local-path-provisioner=0.0.32
+flannel=0.28.7
+local-path-provisioner=0.0.36
 kube-prometheus-stack=75.15.0
 thanos=15.11.0
