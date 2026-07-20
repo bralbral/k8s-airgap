@@ -8,14 +8,16 @@ The first target profile is deliberately conservative:
 - containerd with systemd cgroups;
 - Flannel, pod network `10.244.0.0/16`;
 - local-path-provisioner for initial local volumes;
+- MetalLB in L2 mode and Traefik with the Kubernetes Gateway API;
 - Helm and K9s in the administrator tools bundle;
-- kube-prometheus-stack and Thanos prepared for an external MinIO endpoint.
+- kube-prometheus-stack and Thanos prepared for an external MinIO endpoint;
+  Grafana values prepared for an external PostgreSQL database.
 
-The current scaffold downloads the core binaries and the Kubernetes, Flannel
-and local-path image set. `charts/charts.lock` is the pinned declaration for the
-monitoring stage; chart download, rendering and its complete image closure are
-the next implementation step, because those charts must be selected and tested
-together rather than fetched as unversioned defaults.
+The bundle builder downloads the core binaries, Kubernetes/Flannel/local-path
+images, and the pinned MetalLB and Traefik charts with their image closure.
+`charts/charts.lock` also pins the separate monitoring stage; its chart
+download, rendering and complete image closure remain to be implemented because
+those charts must be selected and tested together.
 
 ## Containerd registry mirror design
 
@@ -153,5 +155,6 @@ scripts/                bundle build, verification and Harbor import helpers
 ansible/                node preparation and cluster bootstrap playbooks
 charts/                 Helm chart lock file and offline values
 manifests/              Flannel, storage and monitoring configuration
+docs/                   installation prerequisites and external-service guidance
 .github/workflows/      CI, build artifact and release workflows
 ```

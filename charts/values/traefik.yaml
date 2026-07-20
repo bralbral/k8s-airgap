@@ -1,0 +1,27 @@
+---
+# The Gateway API CRDs are installed separately from the pinned upstream
+# manifest. Traefik 3.7+ no longer packages them in its Helm chart.
+providers:
+  kubernetesGateway:
+    enabled: true
+    # Copy MetalLB's LoadBalancer address to Gateway.status.addresses.
+    statusAddress:
+      service:
+        enabled: true
+  kubernetesIngress:
+    enabled: false
+
+service:
+  type: LoadBalancer
+
+# Creates the cluster's initial HTTP Gateway. HTTPS is intentionally not
+# enabled until a certificate secret and TLS ownership are chosen.
+gateway:
+  enabled: true
+  name: public
+  listeners:
+    web:
+      port: 8000
+      protocol: HTTP
+      namespacePolicy:
+        from: All

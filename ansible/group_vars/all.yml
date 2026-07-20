@@ -10,3 +10,8 @@ containerd_registry_mirrors:
     project: quay
   - upstream: registry.k8s.io
     project: k8s
+# Reserve this range outside DHCP and all other hosts before running the
+# control-plane playbook. It must be reachable on the same L2 network as nodes.
+metallb_ip_address_pool: 10.10.0.240-10.10.0.250
+metallb_version: 0.16.1
+traefik_chart_version: 40.3.0

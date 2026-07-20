@@ -1,0 +1,35 @@
+---
+- name: Install the external traffic edge after worker nodes are available
+  hosts: control_plane[0]
+  become: true
+  tasks:
+    - name: Install MetalLB
+      ansible.builtin.command: >-
+        {{ bundle_root }}/tools/helm upgrade --install metallb
+        {{ bundle_root }}/charts/metallb-{{ metallb_version }}.tgz
+        --namespace metallb-system --create-namespace --wait --timeout 5m
+      changed_when: true
+
+    - name: Render MetalLB L2 address pool
+      ansible.builtin.template:
+        src: ../templates/metallb-l2-pool.yaml.j2
+        dest: /root/metallb-l2-pool.yaml
+        mode: '0600'
+
+    - name: Configure MetalLB L2 address pool
+      ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f /root/metallb-l2-pool.yaml
+      changed_when: true
+
+    - name: Install Gateway API CRDs
+      ansible.builtin.command: >-
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf apply --server-side
+        -f {{ bundle_root }}/manifests/upstream/gateway-api-standard.yaml
+      changed_when: true
+
+    - name: Install Traefik Gateway API controller
+      ansible.builtin.command: >-
+        {{ bundle_root }}/tools/helm upgrade --install traefik
+        {{ bundle_root }}/charts/traefik-{{ traefik_chart_version }}.tgz
+        --namespace traefik --create-namespace --wait --timeout 5m
+        --values {{ bundle_root }}/charts/values/traefik.yaml
+      changed_when: true

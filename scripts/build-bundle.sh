@@ -20,6 +20,7 @@ mkdir -p \
   "${images_dir}" \
   "${apt_dir}/kubernetes" \
   "${out_dir}/charts" \
+  "${out_dir}/charts/values" \
   "${out_dir}/manifests/upstream" \
   "${out_dir}/manifests/source" \
   "${out_dir}/scripts" \
@@ -30,6 +31,8 @@ cp "${repo_root}/README.md" "${out_dir}/README.md"
 cp "${repo_root}/INSTALL.md" "${out_dir}/INSTALL.md"
 cp -R "${repo_root}/ansible/." "${out_dir}/ansible/"
 cp -R "${repo_root}/manifests/." "${out_dir}/manifests/source/"
+cp "${repo_root}/charts/charts.lock" "${out_dir}/charts/charts.lock"
+cp -R "${repo_root}/charts/values/." "${out_dir}/charts/values/"
 cp "${repo_root}/scripts/verify-bundle.sh" "${out_dir}/scripts/verify-bundle.sh"
 cp "${repo_root}/scripts/import-images-to-harbor.sh" "${out_dir}/scripts/import-images-to-harbor.sh"
 cp "$(command -v crane)" "${tools_dir}/crane"
@@ -80,10 +83,25 @@ fetch "https://github.com/containerd/containerd/releases/download/v${CONTAINERD_
 fetch "https://github.com/opencontainers/runc/releases/download/${RUNC_VERSION}/runc.amd64" "${tools_dir}/runc"
 chmod 0755 "${tools_dir}/runc"
 
+pull_chart() {
+  local name="$1" repository="$2" version="$3"
+  if [[ -f "${out_dir}/charts/${name}-${version}.tgz" ]]; then
+    echo "Reusing ${name} chart ${version}"
+    return
+  fi
+  "${tools_dir}/helm" pull "${name}" --repo "${repository}" \
+    --version "${version}" --destination "${out_dir}/charts"
+}
+
+pull_chart metallb https://metallb.github.io/metallb "${METALLB_VERSION}"
+pull_chart traefik https://traefik.github.io/charts "${TRAEFIK_CHART_VERSION}"
+
 flannel_manifest="${out_dir}/manifests/upstream/flannel.yaml"
 local_path_manifest="${out_dir}/manifests/upstream/local-path-provisioner.yaml"
+gateway_api_manifest="${out_dir}/manifests/upstream/gateway-api-standard.yaml"
 fetch "https://github.com/flannel-io/flannel/releases/download/${FLANNEL_VERSION}/kube-flannel.yml" "${flannel_manifest}"
 fetch "https://raw.githubusercontent.com/rancher/local-path-provisioner/${LOCAL_PATH_PROVISIONER_VERSION}/deploy/local-path-storage.yaml" "${local_path_manifest}"
+fetch "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml" "${gateway_api_manifest}"
 
 sed \
   -e 's|"10.244.0.0/16"|"{{ pod_subnet }}"|g' \
@@ -99,6 +117,14 @@ printf 'ghcr.io/flannel-io/flannel:%s\n' "${FLANNEL_VERSION}" >> "${out_dir}/ima
 printf 'ghcr.io/flannel-io/flannel-cni-plugin:%s\n' "${FLANNEL_CNI_PLUGIN_VERSION}" >> "${out_dir}/images.txt"
 printf 'docker.io/rancher/local-path-provisioner:%s\n' "${LOCAL_PATH_PROVISIONER_VERSION}" >> "${out_dir}/images.txt"
 printf 'docker.io/library/busybox:%s\n' "${BUSYBOX_VERSION}" >> "${out_dir}/images.txt"
+
+for chart in \
+  "${out_dir}/charts/metallb-${METALLB_VERSION}.tgz" \
+  "${out_dir}/charts/traefik-${TRAEFIK_CHART_VERSION}.tgz"; do
+  "${tools_dir}/helm" template offline "${chart}" --include-crds |
+    awk '/^[[:space:]]*image:[[:space:]]*/ { image=$2; gsub(/["'"'"'"'"'"']/, "", image); print image }' \
+    >> "${out_dir}/images.txt"
+done
 grep -Ev '^#|^$' "${repo_root}/config/extra-images.txt" >> "${out_dir}/images.txt" || true
 sort -u -o "${out_dir}/images.txt" "${out_dir}/images.txt"
 

@@ -11,6 +11,10 @@ all:
     harbor_plain_http: false
     harbor_skip_tls_verify: true
     local_path: /var/local-path-provisioner
+    # Reserve this range outside DHCP before installation.
+    metallb_ip_address_pool: 10.10.0.240-10.10.0.250
+    metallb_version: 0.16.1
+    traefik_chart_version: 40.3.0
   children:
     control_plane:
       hosts:

@@ -5,3 +5,4 @@ ansible/inventory/hosts.yml
 *.tar
 *.tar.zst
 *.part-*
+.idea/

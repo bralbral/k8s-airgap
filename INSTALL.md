@@ -11,6 +11,7 @@ replace them with values for the isolated environment.
 | Kubernetes API name | `k8s-api.internal` |
 | Harbor registry | `harbor.internal` |
 | Harbor mirror projects | `docker`, `ghcr`, `quay`, `k8s` |
+| MetalLB address pool | `10.10.0.240-10.10.0.250` |
 
 ## Prerequisites
 
@@ -26,6 +27,11 @@ The current bundle does not contain Debian packages: its `apt/` directory is
 reserved for a future package stage. Install the prerequisites from an internal
 APT mirror or transfer their `.deb` dependency closure before following this
 guide.
+
+Grafana can use an external PostgreSQL database for its own state; it does not
+replace the Prometheus/Thanos metrics store. See
+[docs/EXTERNAL-GRAFANA-POSTGRES.md](docs/EXTERNAL-GRAFANA-POSTGRES.md) before
+installing the monitoring chart.
 
 The environment also needs an existing Harbor instance. Create public projects
 named `docker`, `ghcr`, `quay` and `k8s`. They mirror `docker.io`, `ghcr.io`,
@@ -135,6 +141,11 @@ all:
     harbor_plain_http: false
     harbor_skip_tls_verify: true
     local_path: /var/local-path-provisioner
+    # Reserved, unused addresses on the same L2 network as the nodes.
+    # Exclude this range from DHCP before applying the playbook.
+    metallb_ip_address_pool: 10.10.0.240-10.10.0.250
+    metallb_version: 0.16.1
+    traefik_chart_version: 40.3.0
   children:
     control_plane:
       hosts:
@@ -188,8 +199,9 @@ ssh deploy@10.10.0.11 \
 ansible-playbook -i inventory/hosts.yml playbooks/init-control-plane.yml
 ```
 
-This initialises Kubernetes and applies the offline Flannel and local-path
-provisioner manifests. Check the control-plane node and system pods:
+This initialises Kubernetes and installs Flannel and the local-path provisioner.
+
+Check the control-plane node and system pods:
 
 ```bash
 ssh deploy@10.10.0.11 \
@@ -219,7 +231,26 @@ ansible-playbook -i inventory/hosts.yml playbooks/join-workers.yml \
 
 The join token is temporary. Generate a new command if it expires.
 
-## 8. Verify the cluster
+## 8. Install the external traffic edge
+
+Before this step, reserve `metallb_ip_address_pool` outside DHCP and ensure TCP
+`80` and `443` are permitted to its addresses. Run this only after at least one
+worker is `Ready`:
+
+```bash
+ansible-playbook -i inventory/hosts.yml playbooks/install-edge.yml
+```
+
+It installs MetalLB, its L2 address pool, the Gateway API CRDs and Traefik. The
+initial Traefik Gateway is HTTP-only; add a TLS listener only after placing its
+certificate Secret in the `traefik` namespace.
+
+```bash
+ssh deploy@10.10.0.11 \
+  'sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf get svc -n traefik'
+```
+
+## 9. Verify the cluster
 
 ```bash
 ssh deploy@10.10.0.11 \
