@@ -12,8 +12,9 @@ required_files=(
   repositories/registry/mapping.yaml
   repositories/registry/images/images.txt
   repositories/python/requirements.txt
-  repositories/python/requirements.yml
+  repositories/python/required-collections.txt
   installers/kubespray/source/cluster.yml
+  installers/kubespray/source/galaxy.yml
   installers/kubespray/source/requirements.txt
   tools/kubeadm
   tools/kubectl
@@ -40,11 +41,6 @@ done < repositories/files/files.list
 
 find repositories/python/wheels -maxdepth 1 -type f | grep -q . || {
   echo "Python wheelhouse is empty" >&2
-  exit 1
-}
-
-find repositories/python/collections -maxdepth 1 -type f -name '*.tar.gz' | grep -q . || {
-  echo "Ansible collection repository is empty" >&2
   exit 1
 }
 

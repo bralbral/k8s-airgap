@@ -9,7 +9,7 @@ runtime format. Files under `repositories/` are imported into those services.
 | `repositories/files` | nginx static file repository | Kubespray |
 | `repositories/registry/images` | Harbor OCI registry | containerd |
 | `repositories/registry/charts` | Harbor OCI registry | Helm |
-| `repositories/python` | local wheels and Ansible collections | Ansible controller |
+| `repositories/python` | local wheels and verified bundled Ansible collections | Ansible controller |
 
 Image repository paths and tags are preserved during import:
 

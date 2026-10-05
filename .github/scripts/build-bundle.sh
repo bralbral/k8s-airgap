@@ -49,7 +49,6 @@ mkdir -p \
   "${apt_repository_dir}" \
   "${files_repository_dir}/content" \
   "${repositories_dir}/python/wheels" \
-  "${repositories_dir}/python/collections" \
   "${platform_dir}/manifests/upstream" \
   "${platform_dir}/manifests/source" \
   "${deploy_scripts_dir}" \
@@ -165,18 +164,55 @@ python3 -m pip download \
 cp \
   "${out_dir}/installers/kubespray/source/requirements.txt" \
   "${repositories_dir}/python/requirements.txt"
-cp \
-  "${out_dir}/installers/kubespray/source/requirements.yml" \
-  "${repositories_dir}/python/requirements.yml"
 
 builder_venv="$(mktemp -d)"
 python3 -m venv "${builder_venv}/venv"
 "${builder_venv}/venv/bin/pip" install \
   --disable-pip-version-check \
   --requirement "${out_dir}/installers/kubespray/source/requirements.txt"
-"${builder_venv}/venv/bin/ansible-galaxy" collection download \
-  --requirements-file "${repositories_dir}/python/requirements.yml" \
-  --download-path "${repositories_dir}/python/collections"
+installed_collections="${builder_venv}/installed-collections.json"
+"${builder_venv}/venv/bin/ansible-galaxy" collection list --format json \
+  > "${installed_collections}"
+"${builder_venv}/venv/bin/python" - \
+  "${out_dir}/installers/kubespray/source/galaxy.yml" \
+  "${installed_collections}" \
+  "${repositories_dir}/python/required-collections.txt" <<'PY'
+import json
+import sys
+
+import yaml
+from packaging.specifiers import SpecifierSet
+from packaging.version import Version
+
+galaxy_path, installed_path, output_path = sys.argv[1:]
+with open(galaxy_path, encoding="utf-8") as stream:
+    required = yaml.safe_load(stream).get("dependencies", {})
+with open(installed_path, encoding="utf-8") as stream:
+    collection_paths = json.load(stream)
+
+installed = {}
+for collections in collection_paths.values():
+    installed.update(
+        (name, metadata["version"])
+        for name, metadata in collections.items()
+    )
+
+errors = []
+with open(output_path, "w", encoding="utf-8") as stream:
+    for name, constraint in sorted(required.items()):
+        version = installed.get(name)
+        if version is None:
+            errors.append(f"missing Ansible collection: {name} ({constraint})")
+            continue
+        if Version(version) not in SpecifierSet(str(constraint)):
+            errors.append(
+                f"incompatible Ansible collection: {name} {version} ({constraint})"
+            )
+        stream.write(f"{name}\t{constraint}\t{version}\n")
+
+if errors:
+    raise SystemExit("\n".join(errors))
+PY
 
 (
   cd "${out_dir}/installers/kubespray/source"
