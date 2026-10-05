@@ -154,11 +154,14 @@ See [INSTALL.md](INSTALL.md) for the complete offline installation guide,
 including Harbor preparation, node prerequisites, Ansible inventory, cluster
 bootstrap and verification.
 
-1. Run the `Build offline bundle` workflow manually and provide a release version.
-2. Download all semantic assets from that GitHub Release.
-3. Transfer the release directory into the isolated network and run `bash unpack-release.sh . ../k8s-airgap`.
-4. Import images into Harbor.
-5. Adjust `deploy/kubespray/inventory/lab/hosts.yaml` and run Kubespray.
+1. Push the changes and wait for the automatic `Validate` workflow to pass.
+2. Run the `Build offline bundle` workflow manually. It validates the repository
+   again before downloading anything and generates the Release name automatically.
+3. Download all semantic assets from that GitHub Release. Its tag has the form
+   `airgap-v1.36.2-build.RUN.ATTEMPT`.
+4. Transfer the release directory into the isolated network and run `bash unpack-release.sh . ../k8s-airgap`.
+5. Import images into Harbor.
+6. Adjust `deploy/kubespray/inventory/lab/hosts.yaml` and run Kubespray.
 
 No credentials, CA private keys, kubeconfigs, MinIO keys or Harbor passwords belong in this repository or in its releases.
 

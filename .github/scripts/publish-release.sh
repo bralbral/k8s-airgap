@@ -1,18 +1,15 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-release_version="${1:?Usage: publish-release.sh <release-version> [target-sha]}"
-target_sha="${2:-}"
+target_sha="${1:-}"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 source "${repo_root}/config/versions.env"
 : "${GH_TOKEN:?GH_TOKEN is required}"
+: "${GITHUB_RUN_NUMBER:?GITHUB_RUN_NUMBER is required}"
 command -v gh >/dev/null || { echo "gh is required" >&2; exit 1; }
 
-[[ "${release_version}" =~ ^[0-9A-Za-z][0-9A-Za-z._-]*$ ]] || {
-  echo "Invalid release version: ${release_version}" >&2
-  exit 1
-}
+release_version="${KUBERNETES_VERSION}-build.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT:-1}"
 
 release_dir="${repo_root}/dist/release-${KUBERNETES_VERSION#v}-debian12-amd64"
 [[ -f "${release_dir}/SHA256SUMS" ]] || {
@@ -21,7 +18,7 @@ release_dir="${repo_root}/dist/release-${KUBERNETES_VERSION#v}-debian12-amd64"
 }
 
 release_tag="airgap-${release_version}"
-release_title="Kubernetes Air-Gap ${release_version}"
+release_title="Kubernetes Air-Gap ${KUBERNETES_VERSION} build ${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT:-1}"
 
 if gh release view "${release_tag}" >/dev/null 2>&1; then
   echo "Release already exists: ${release_tag}" >&2

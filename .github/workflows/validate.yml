@@ -4,7 +4,6 @@ name: Validate
 "on":
   pull_request:
   push:
-    branches: [main]
 
 permissions:
   contents: read
@@ -14,13 +13,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-      - name: Validate shell syntax
-        run: |
-          bash -n .github/scripts/*.sh
-          bash -n deploy/scripts/*.sh
-          bash -n deploy/infrastructure/scripts/*.sh
-      - name: Validate YAML
+      - name: Install validation dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y yamllint
-          yamllint -d '{extends: default, rules: {line-length: disable}}' config deploy .github
+      - name: Validate repository
+        run: .github/scripts/validate.sh

@@ -3,11 +3,8 @@ name: Build offline bundle
 
 "on":
   workflow_dispatch:
-    inputs:
-      release_version:
-        description: Release version, for example 2026.10.0
-        required: true
-        type: string
+
+run-name: "Build air-gap release #${{ github.run_number }}.${{ github.run_attempt }}"
 
 permissions:
   contents: write
@@ -17,10 +14,30 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
+  validate:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
+      - name: Install validation dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y yamllint
+      - name: Validate repository
+        run: .github/scripts/validate.sh
+
+  build:
+    needs: validate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            python3-pip \
+            python3-venv \
+            unzip \
+            zstd
       - name: Install crane
         run: |
           source config/versions.env
@@ -28,11 +45,8 @@ jobs:
           tar -xzf crane.tar.gz crane
           sudo install -m 0755 crane /usr/local/bin/crane
       - name: Build bundle
-        run: .github/scripts/build-bundle.sh
+        run: bash -x .github/scripts/build-bundle.sh
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >-
-          .github/scripts/publish-release.sh
-          '${{ inputs.release_version }}'
-          '${{ github.sha }}'
+        run: .github/scripts/publish-release.sh '${{ github.sha }}'
