@@ -1,196 +1,511 @@
-# Kubernetes air-gap bundle for Debian 12
+# Kubernetes Air-Gap для Debian 12
 
-This repository builds a versioned, transferable Kubernetes installation
-bundle for `amd64` Debian 12 nodes. It installs vanilla Kubernetes with
-containerd and Flannel VXLAN. Kubernetes is bootstrapped with the upstream
-`kubeadm`, `kubelet` and `kubectl` binaries. The bundle also contains a
-Dockerized minimal Debian repository and the official Harbor offline installer;
-cluster images are imported into Harbor after transfer into the isolated
-network.
+Репозиторий собирает переносимый набор для установки vanilla Kubernetes в
+полностью изолированной сети. Kubernetes устанавливается официальными
+`kubeadm`, `kubelet` и `kubectl`; Kubespray и другие Kubernetes-дистрибутивы не
+используются.
 
-The first target profile is deliberately conservative:
+Целевая конфигурация стенда:
 
-- vanilla Kubernetes installed with kubeadm and the repository's Ansible playbooks;
-- containerd with systemd cgroups;
-- Flannel, pod network `10.244.0.0/16`;
-- local-path-provisioner for initial local volumes;
-- MetalLB in L2 mode and Traefik with the Kubernetes Gateway API;
-- Helm and K9s in the administrator tools bundle.
+- один control plane и два worker-узла;
+- Debian 12, `amd64`;
+- containerd с `systemd` cgroups;
+- Flannel VXLAN, Pod CIDR `10.244.0.0/16`;
+- local-path-provisioner для локальных PersistentVolume;
+- локальный APT-репозиторий;
+- Harbor для образов и Helm OCI charts;
+- MetalLB, Gateway API и Traefik;
+- Helm, K9s и kubectl для Linux, kubectl и K9s для Windows.
 
-For a memory-constrained local environment, Harbor and the Debian repository
-run as Docker services on the physical host while Kubernetes runs on three
-Debian 12 VMs. The source repository keeps the detailed lab topology under
-`docs/`; the transferable release contains the self-contained `INSTALL.md`.
+Monitoring, MinIO и Argo CD пока не входят в собираемый Release. Они будут
+добавляться отдельным следующим слоем после стабилизации базового кластера.
 
-The bundle builder downloads the core binaries, Kubernetes/Flannel/local-path
-images, the Harbor offline installer, Docker Compose, a file-based Debian
-package closure plus its ready-to-run nginx image, and the pinned MetalLB and
-Traefik charts with their image closure.
-Transferable repositories are grouped under `repositories/`: Debian packages
-under `apt`, with images and Helm artifacts under `registry`.
-`deploy/platform/charts/charts.lock` also records planning versions for the
-separate monitoring stage. Monitoring, MinIO and Argo CD are not part of the
-current downloadable bundle yet.
+## Как это устроено
 
-## Containerd registry mirror design
+Есть две стороны:
 
-The registry layout preserves every upstream repository path and tag.
-Kubernetes manifests and Helm values keep their original image references;
-containerd redirects each source registry to a dedicated public Harbor project.
+| Сторона | Что происходит |
+| --- | --- |
+| Машина с Интернетом | GitHub Actions скачивает пакеты, бинарники, charts, образы и официальный offline-installer Harbor, затем публикует GitHub Release |
+| Закрытая сеть | Человек распаковывает Release, запускает локальные APT и Harbor, импортирует артефакты и устанавливает Kubernetes через Ansible + kubeadm |
 
-| Source registry | Harbor project | Example destination |
-| --- | --- | --- |
-| `docker.io` | `docker` | `harbor.internal:8080/docker/apache/airflow:2.10.5` |
-| `ghcr.io` | `ghcr` | `harbor.internal:8080/ghcr/flannel-io/flannel:v0.28.7` |
-| `quay.io` | `quay` | `harbor.internal:8080/quay/prometheus/node-exporter:v1.9.1` |
-| `registry.k8s.io` | `k8s` | `harbor.internal:8080/k8s/kube-apiserver:v1.36.2` |
+GitHub-специфичная логика находится только в `.github/`. Всё, что запускается
+в закрытом контуре вручную, находится в `deploy/`.
 
-For example, `docker.io/apache/airflow:2.10.5` is stored as
-`harbor.internal:8080/docker/apache/airflow:2.10.5`, while the workload continues to
-reference `docker.io/apache/airflow:2.10.5`. The source registry is represented
-by the Harbor project, and the complete `apache/airflow` repository path is
-preserved. This avoids repository-name collisions and does not require changes
-to third-party manifests.
-
-All mirror projects must exist before importing images. They should allow
-anonymous pull access because kubeadm needs to fetch control-plane images before
-Kubernetes image pull secrets are available. Push access can remain
-authenticated.
-
-Containerd 2.x must be told where to find its registry host configuration:
-
-```toml
-# /etc/containerd/config.toml
-version = 3
-
-[plugins."io.containerd.cri.v1.images".registry]
-  config_path = "/etc/containerd/certs.d"
-```
-
-Create one `hosts.toml` namespace for every mirrored upstream registry:
+## Структура репозитория
 
 ```text
-/etc/containerd/certs.d/
-├── docker.io/hosts.toml
-├── ghcr.io/hosts.toml
-├── quay.io/hosts.toml
-└── registry.k8s.io/hosts.toml
+.
+├── .github/
+│   ├── workflows/
+│   │   ├── validate.yml
+│   │   └── build-bundle.yml
+│   └── scripts/
+│       ├── validate.sh
+│       ├── validate-config.py
+│       ├── smoke-test-release.sh
+│       ├── build-bundle.sh
+│       ├── package-release.sh
+│       └── publish-release.sh
+├── config/
+│   ├── versions.env
+│   ├── packages.txt
+│   ├── extra-images.txt
+│   ├── registries.yaml
+│   └── cluster-defaults.yaml
+└── deploy/
+    ├── infrastructure/
+    │   ├── apt/
+    │   ├── scripts/
+    │   └── compose.yaml
+    ├── nodes/ansible/
+    │   ├── inventory/
+    │   ├── playbooks/
+    │   └── templates/
+    ├── platform/
+    └── scripts/
 ```
 
-The lab configuration uses plain HTTP, so no Harbor certificate or CA needs to
-be copied to the nodes:
+Основные настраиваемые файлы:
 
-```toml
-# /etc/containerd/certs.d/docker.io/hosts.toml
-[host."http://harbor.internal:8080/v2/docker"]
-  capabilities = ["pull", "resolve"]
-  override_path = true
-```
+| Файл | Назначение |
+| --- | --- |
+| `config/versions.env` | Версии Kubernetes, containerd, Harbor, Helm, K9s и остальных компонентов |
+| `config/packages.txt` | Пакеты, которые попадут в offline APT closure |
+| `config/extra-images.txt` | Дополнительные OCI-образы для скачивания |
+| `config/registries.yaml` | Соответствие upstream registries проектам Harbor |
+| `deploy/nodes/ansible/inventory/*.example.yml` | Адреса узлов, APT, Harbor, API endpoint и MetalLB pool |
 
-```toml
-# /etc/containerd/certs.d/ghcr.io/hosts.toml
-[host."http://harbor.internal:8080/v2/ghcr"]
-  capabilities = ["pull", "resolve"]
-  override_path = true
-```
+## Что делает GitHub Actions
 
-```toml
-# /etc/containerd/certs.d/quay.io/hosts.toml
-[host."http://harbor.internal:8080/v2/quay"]
-  capabilities = ["pull", "resolve"]
-  override_path = true
-```
+После каждого push и pull request автоматически запускается workflow
+`Validate`. Он проверяет:
 
-```toml
-# /etc/containerd/certs.d/registry.k8s.io/hosts.toml
-[host."http://harbor.internal:8080/v2/k8s"]
-  capabilities = ["pull", "resolve"]
-  override_path = true
-```
+- Bash-синтаксис и ShellCheck;
+- YAML;
+- согласованность закреплённых версий;
+- синтаксис всех Ansible playbook;
+- упаковку, контрольные суммы и обратную распаковку тестового Release.
 
-Plain HTTP is unencrypted and is intended only for the isolated private
-network. To switch to HTTPS, change the inventory variables, configure Harbor
-TLS and install the Harbor CA on every node. `skip_verify` can be used for a
-lab-only self-signed endpoint.
+Сам bundle собирается вручную:
 
-Only the real Harbor and Kubernetes API names need local resolution. The
-Ansible inventory supplies these entries to the node preparation playbook:
+1. Открыть вкладку **Actions**.
+2. Выбрать **Build offline bundle**.
+3. Нажать **Run workflow**.
+
+Этот workflow сначала повторяет validation, затем скачивает все артефакты и
+создаёт Release с автоматически сформированным тегом:
 
 ```text
-10.10.0.5 harbor.internal
-10.10.0.11 k8s-api.internal
+airgap-v1.36.2-build.<номер запуска>.<номер попытки>
 ```
 
-Do not map `docker.io`, `ghcr.io`, `quay.io` or `registry.k8s.io` in
-`/etc/hosts`. Containerd performs the redirection and connects to
-`harbor.internal`.
+## Структура GitHub Release
 
-After changing `/etc/containerd/config.toml`, restart containerd and test pulls
-using the original image names:
+Release состоит из нескольких файлов, а не из одного огромного архива:
+
+| Asset | Содержимое |
+| --- | --- |
+| `bootstrap.tar.zst` | README, manifest, конфигурация, скрипты распаковки и проверки |
+| `automation.tar.zst` | Ansible playbooks, templates и Kubernetes manifests |
+| `apt-debian12-amd64.tar.zst` | Файловый APT-репозиторий и готовый nginx Docker image |
+| `tools-linux-amd64.tar.zst` | kubeadm, kubelet, kubectl, containerd, runc, CNI, Helm, K9s, crane, crictl и Docker Compose |
+| `tools-windows-amd64.tar.zst` | `kubectl.exe` и `k9s.exe` |
+| `harbor-offline.tar.zst` | Официальный offline-installer Harbor и инфраструктурные скрипты |
+| `charts-networking.tar.zst` | MetalLB и Traefik charts с values |
+| `images-kubernetes-NNN.tar.zst` | Kubernetes, Flannel и local-path images |
+| `images-networking-NNN.tar.zst` | Images из MetalLB и Traefik charts |
+| `images-extra-NNN.tar.zst` | Необязательные images из `config/extra-images.txt` |
+| `bundle-manifest.yaml` | Описание состава Release |
+| `SHA256SUMS` | Контрольные суммы всех Release assets |
+| `unpack-release.sh` | Проверка и сборка assets в единое дерево |
+
+Образы автоматически разбиваются на части, чтобы каждый asset оставался меньше
+ограничения GitHub в 2 GiB.
+
+Нужно скачать **все файлы одного Release** в одну директорию. Нельзя смешивать
+assets из разных запусков.
+
+На машине с Интернетом это можно сделать через GitHub CLI:
 
 ```bash
-sudo systemctl restart containerd
-sudo crictl --runtime-endpoint unix:///run/containerd/containerd.sock \
-  pull docker.io/library/busybox:1.37.0
-sudo crictl --runtime-endpoint unix:///run/containerd/containerd.sock \
-  pull registry.k8s.io/pause:3.10.2
+mkdir k8s-airgap-release
+gh release download RELEASE_TAG --dir k8s-airgap-release
 ```
 
-When uploading to Harbor without trusted TLS, the bundle importer must also be
-run with `--insecure`. This flag affects the upload client only; the containerd
-settings above control image pulls on cluster nodes.
+После этого вся директория переносится в закрытую сеть, например на внешний
+диск.
 
-> **Compatibility note:** bundles whose importer still requires a `--project`
-> argument use the earlier flat layout and are not compatible with this mirror
-> configuration. Rebuild and transfer the bundle after upgrading.
+## Сетевая схема тестового стенда
 
-## Installation flow
+Пример `lab.example.yml` использует сеть libvirt `192.168.122.0/24`:
 
-See [INSTALL.md](INSTALL.md) for the complete offline installation guide,
-including Harbor preparation, node prerequisites, Ansible inventory, cluster
-bootstrap and verification.
+| Адрес | Назначение |
+| --- | --- |
+| `192.168.122.1:8080` | Harbor на infrastructure-host |
+| `192.168.122.1:8081` | APT-репозиторий на infrastructure-host |
+| `192.168.122.11` | `cp-01` |
+| `192.168.122.21` | `worker-01` |
+| `192.168.122.22` | `worker-02` |
+| `192.168.122.240-250` | Пул MetalLB, который необходимо исключить из DHCP |
 
-1. Push the changes and wait for the automatic `Validate` workflow to pass.
-2. Run the `Build offline bundle` workflow manually. It validates the repository
-   again before downloading anything and generates the Release name automatically.
-3. Download all semantic assets from that GitHub Release. Its tag has the form
-   `airgap-v1.36.2-build.RUN.ATTEMPT`.
-4. Transfer the release directory into the isolated network and run `bash unpack-release.sh . ../k8s-airgap`.
-5. Run `deploy/infrastructure/scripts/bootstrap-host.sh` on the Debian 12
-   infrastructure host, then start the bundled APT service and Harbor.
-6. Import images and Helm OCI charts into Harbor.
-7. Adjust `deploy/nodes/ansible/inventory/hosts.yml` and run the playbooks from
-   [INSTALL.md](INSTALL.md).
+Infrastructure-host одновременно используется как Ansible controller. Для
+поддерживаемого bootstrap-сценария он должен работать на Debian 12 `amd64`,
+иметь не менее 4 GiB RAM и 40 GiB свободного места. Kubernetes-узлам необходимо
+не менее 2 CPU и 2 GiB RAM; для небольшого стенда рекомендуется примерно
+2560 MiB для control plane и 2304 MiB для каждого worker.
 
-No credentials, CA private keys, kubeconfigs, MinIO keys or Harbor passwords belong in this repository or in its releases.
+Между Kubernetes-узлами должен проходить UDP `8472` для Flannel VXLAN. Также
+необходимо разрешить используемые Kubernetes-порты, включая TCP `6443` и
+`10250`.
 
-## Repository layout
+## Установка после скачивания Release
+
+Все дальнейшие команды выполняются в закрытой сети.
+
+### 1. Распаковать и проверить Release
+
+```bash
+cd /path/to/k8s-airgap-release
+bash unpack-release.sh "$PWD" ../k8s-airgap
+cd ../k8s-airgap
+```
+
+Скрипт сначала проверит Release `SHA256SUMS`, распакует все component archives,
+а затем проверит внутреннюю структуру bundle. Успешный результат заканчивается
+строкой:
 
 ```text
-config/                 pinned versions and repository mappings
-deploy/scripts/          release assembly and verification
-deploy/infrastructure/  APT repository and Harbor bootstrap
-deploy/nodes/ansible/    Debian 12 node preparation
-deploy/platform/         charts, values and Kubernetes manifests
-docs/                    installation and operations documentation
-.github/workflows/       GitHub Actions entry points
-.github/scripts/         connected-side build and Release publication
+Bundle structure: OK
 ```
 
-The builder publishes several semantic release assets instead of one monolithic
-archive. `bundle-manifest.yaml` lists them and `SHA256SUMS` covers every release
-asset. After assembly, the resulting directory keeps transferable artifacts in
-this hierarchy:
+Итоговая структура будет выглядеть так:
 
 ```text
-repositories/
-├── apt/
-└── registry/
-│   ├── images/
-│   │   ├── archives/
-│   │   └── images.txt
-│   ├── charts/
-│   │   ├── archives/
-│   │   └── charts.lock
-│   └── mapping.yaml
+k8s-airgap/
+├── README.md
+├── manifest.yaml
+├── manifest.env
+├── repositories/
+│   ├── apt/
+│   │   ├── repository/
+│   │   └── apt-repo-debian12-amd64.tar.gz
+│   └── registry/
+│       ├── images/
+│       │   ├── archives/
+│       │   ├── groups/
+│       │   └── images.txt
+│       ├── charts/
+│       │   ├── archives/
+│       │   └── values/
+│       └── mapping.yaml
+├── tools/
+└── deploy/
 ```
+
+### 2. Подготовить infrastructure-host
+
+Скрипт использует файловый APT-репозиторий из bundle и без Интернета
+устанавливает Docker Engine, Docker Compose и Ansible. Старые APT sources
+сохраняются в `/etc/apt/k8s-airgap-bootstrap-backup`.
+
+```bash
+sudo ./deploy/infrastructure/scripts/bootstrap-host.sh "$PWD"
+```
+
+### 3. Запустить локальный APT
+
+```bash
+cp deploy/infrastructure/.env.example deploy/infrastructure/.env
+
+docker load < repositories/apt/apt-repo-debian12-amd64.tar.gz
+
+docker compose \
+  --env-file deploy/infrastructure/.env \
+  -f deploy/infrastructure/compose.yaml \
+  up -d --no-build apt-repo
+
+curl --fail http://127.0.0.1:8081/healthz
+```
+
+На Kubernetes-узлах этот репозиторий будет доступен как
+`http://192.168.122.1:8081/debian`.
+
+### 4. Установить Harbor
+
+В лабораторном профиле Harbor работает по HTTP на полностью приватной сети.
+Сертификаты не требуются. Пароль должен состоять из букв, цифр, точки,
+подчёркивания и дефиса.
+
+```bash
+export HARBOR_HOSTNAME=harbor.internal
+export HARBOR_HTTP_PORT=8080
+export HARBOR_DATA_DIR=/var/lib/harbor
+export HARBOR_ADMIN_PASSWORD='ChangeMe_12345'
+
+harbor_installer="$(find deploy/infrastructure/harbor -maxdepth 1 \
+  -name 'harbor-offline-installer-*.tgz' -print -quit)"
+
+sudo -E ./deploy/infrastructure/scripts/install-harbor.sh \
+  "${harbor_installer}"
+```
+
+Проверка:
+
+```bash
+curl --fail http://harbor.internal:8080/api/v2.0/health
+```
+
+Установщик создаёт публичные проекты:
+
+```text
+docker
+ghcr
+quay
+k8s
+charts
+```
+
+Push требует авторизацию, pull из этих проектов доступен без Kubernetes image
+pull secrets.
+
+### 5. Импортировать images и charts в Harbor
+
+Войти в Harbor через bundled crane:
+
+```bash
+./tools/crane auth login harbor.internal:8080 \
+  --insecure \
+  -u admin
+```
+
+Импортировать все OCI images:
+
+```bash
+./deploy/infrastructure/scripts/import-images-to-harbor.sh \
+  --registry harbor.internal:8080 \
+  --insecure \
+  "$PWD"
+```
+
+Импортировать Helm charts в OCI project `charts`:
+
+```bash
+export HARBOR_PASSWORD="${HARBOR_ADMIN_PASSWORD}"
+
+./deploy/infrastructure/scripts/import-charts-to-harbor.sh \
+  --registry harbor.internal:8080 \
+  --plain-http \
+  "$PWD"
+
+unset HARBOR_PASSWORD
+```
+
+### 6. Скопировать bundle на Kubernetes-узлы
+
+Playbooks ожидают bundle непосредственно в `/opt/k8s-airgap` на каждой ноде.
+Не создавайте внутри ещё одну директорию с версией.
+
+Пример для одного узла; повторить для control plane и обоих workers:
+
+```bash
+scp -r . deploy@192.168.122.11:/tmp/k8s-airgap
+
+ssh deploy@192.168.122.11 \
+  'sudo mkdir -p /opt/k8s-airgap && sudo cp -a /tmp/k8s-airgap/. /opt/k8s-airgap/'
+
+ssh deploy@192.168.122.11 \
+  'sudo /opt/k8s-airgap/deploy/scripts/verify-bundle.sh /opt/k8s-airgap'
+```
+
+После копирования на всех узлах должны существовать, например:
+
+```text
+/opt/k8s-airgap/tools/kubeadm
+/opt/k8s-airgap/tools/containerd.tar.gz
+/opt/k8s-airgap/deploy/nodes/ansible/templates/flannel.yaml.j2
+```
+
+### 7. Настроить Ansible inventory
+
+На infrastructure-host:
+
+```bash
+cd deploy/nodes/ansible
+cp inventory/lab.example.yml inventory/hosts.yml
+```
+
+Проверить и при необходимости изменить в `inventory/hosts.yml`:
+
+- IP control plane и workers;
+- `apt_repo_url`;
+- адрес infrastructure-host для `harbor.internal`;
+- адрес control plane для `k8s-api.internal`;
+- `control_plane_endpoint`;
+- `metallb_ip_address_pool`;
+- SSH-пользователя `ansible_user`.
+
+Пример ключевой части inventory:
+
+```yaml
+all:
+  vars:
+    ansible_user: deploy
+    ansible_become: true
+    kube_version: v1.36.2
+    pod_subnet: 10.244.0.0/16
+    service_subnet: 10.96.0.0/12
+    control_plane_endpoint: k8s-api.internal:6443
+    apt_repo_url: http://192.168.122.1:8081/debian
+    apt_repo_trusted: true
+    harbor_registry: harbor.internal:8080
+    harbor_plain_http: true
+    harbor_skip_tls_verify: false
+    airgap_host_entries:
+      - address: 192.168.122.1
+        names: [harbor.internal]
+      - address: 192.168.122.11
+        names: [k8s-api.internal]
+  children:
+    control_plane:
+      hosts:
+        cp-01:
+          ansible_host: 192.168.122.11
+    workers:
+      hosts:
+        worker-01:
+          ansible_host: 192.168.122.21
+        worker-02:
+          ansible_host: 192.168.122.22
+```
+
+SSH host keys должны быть заранее приняты, поскольку их проверка включена.
+Проверить доступ без зависимости от установленного Python:
+
+```bash
+ansible -i inventory/hosts.yml all \
+  -b -m raw -a 'cat /etc/debian_version'
+```
+
+### 8. Установить базовый Kubernetes-кластер
+
+Одна команда последовательно настраивает APT, подготавливает ноды, устанавливает
+containerd/kubelet/kubeadm, выполняет `kubeadm init`, устанавливает Flannel и
+local-path-provisioner, затем присоединяет workers:
+
+```bash
+ansible-playbook \
+  -i inventory/hosts.yml \
+  playbooks/install-cluster.yml
+```
+
+Отдельные playbooks сохранены для диагностики и пошагового запуска:
+
+```text
+playbooks/configure-apt.yml
+playbooks/prepare-nodes.yml
+playbooks/init-control-plane.yml
+playbooks/join-workers.yml
+```
+
+### 9. Проверить базовый кластер
+
+```bash
+ssh deploy@192.168.122.11 \
+  'sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes -o wide'
+
+ssh deploy@192.168.122.11 \
+  'sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf get pods -A -o wide'
+```
+
+Control plane и оба workers должны перейти в `Ready`, а Flannel, CoreDNS и
+local-path-provisioner — в `Running`.
+
+### 10. Установить MetalLB и Traefik
+
+Сначала убедиться, что MetalLB pool исключён из DHCP и доступен в той же L2
+сети, что и Kubernetes-ноды.
+
+```bash
+ansible-playbook \
+  -i inventory/hosts.yml \
+  playbooks/install-edge.yml
+```
+
+Проверка:
+
+```bash
+ssh deploy@192.168.122.11 \
+  'sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf get pods -A'
+
+ssh deploy@192.168.122.11 \
+  'sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf get svc -n traefik'
+```
+
+## Как работают images без переименования manifests
+
+Образы сохраняются в Harbor с полным upstream path:
+
+```text
+registry.k8s.io/kube-apiserver:v1.36.2
+  -> harbor.internal:8080/k8s/kube-apiserver:v1.36.2
+
+ghcr.io/flannel-io/flannel:v0.28.7
+  -> harbor.internal:8080/ghcr/flannel-io/flannel:v0.28.7
+```
+
+Kubernetes manifests продолжают ссылаться на исходные имена. На каждой ноде
+Ansible создаёт containerd mirror-конфигурацию:
+
+```text
+/etc/containerd/certs.d/docker.io/hosts.toml
+/etc/containerd/certs.d/ghcr.io/hosts.toml
+/etc/containerd/certs.d/quay.io/hosts.toml
+/etc/containerd/certs.d/registry.k8s.io/hosts.toml
+```
+
+В `/etc/hosts` добавляются только реальные внутренние имена:
+
+```text
+192.168.122.1  harbor.internal
+192.168.122.11 k8s-api.internal
+```
+
+Не нужно добавлять туда `docker.io`, `ghcr.io`, `quay.io` или
+`registry.k8s.io`: перенаправление выполняет containerd.
+
+## K9s и kubectl
+
+В Linux bundle находятся:
+
+```text
+tools/kubectl
+tools/k9s
+```
+
+В Windows bundle:
+
+```text
+tools/windows-amd64/kubectl.exe
+tools/windows-amd64/k9s.exe
+```
+
+Для удалённого управления нужно безопасно скопировать
+`/etc/kubernetes/admin.conf` с control plane на администраторскую машину и
+указать его через `KUBECONFIG`. Этот файл предоставляет полные права
+cluster-admin и не должен попадать в Git или GitHub Release.
+
+## Ограничения текущего этапа
+
+- Поддерживаются Debian 12 и `amd64`.
+- Автоматизирован один control plane; присоединение дополнительных control
+  plane пока не реализовано.
+- Лабораторный APT unsigned и используется через `Trusted: yes`.
+- Harbor работает по HTTP и предназначен только для доверенной приватной сети.
+- local-path-provisioner не обеспечивает отказоустойчивое хранилище.
+- Monitoring, MinIO и Argo CD пока не собираются и не устанавливаются.
+- VM image не входит в Release: Debian 12 должен быть установлен или подготовлен
+  заранее.
+
+Пароли Harbor, kubeconfig, приватные SSH-ключи и любые production-секреты не
+должны храниться в этом репозитории или публиковаться в Release.

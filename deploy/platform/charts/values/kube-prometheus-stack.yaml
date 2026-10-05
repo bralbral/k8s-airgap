@@ -1,8 +1,8 @@
 ---
 # Grafana's state (users, dashboards, alert rules and settings) is stored in
 # the external PostgreSQL service. Metrics remain in Prometheus/Thanos.
-# Create the grafana-postgresql Secret in the release namespace before the
-# monitoring chart is installed; see docs/EXTERNAL-GRAFANA-POSTGRES.md.
+# This values file is reserved for the future monitoring stage and is not
+# installed by the current release.
 grafana:
   envFromSecret: grafana-postgresql
   persistence:

@@ -26,7 +26,6 @@ mkdir -p \
   "${staging_dir}/tools/windows-amd64"
 
 cp "${repo_root}/README.md" "${staging_dir}/README.md"
-cp "${repo_root}/INSTALL.md" "${staging_dir}/INSTALL.md"
 cp "${repo_root}/config/packages.txt" "${staging_dir}/config/packages.txt"
 mkdir -p \
   "${staging_dir}/deploy/infrastructure/apt" \
@@ -122,8 +121,8 @@ for asset in "${required_assets[@]}"; do
   }
 done
 
-if tar --zstd -tf "${release_dir}/bootstrap.tar.zst" | grep -q '^docs/'; then
-  echo "Repository documentation must not be packaged into the release" >&2
+if tar --zstd -tf "${release_dir}/bootstrap.tar.zst" | grep -Eq '^(docs/|INSTALL\.md$)'; then
+  echo "Only the canonical README must be packaged as documentation" >&2
   exit 1
 fi
 

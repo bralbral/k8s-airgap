@@ -22,7 +22,7 @@ archive() {
 }
 
 archive bootstrap \
-  manifest.yaml manifest.env SHA256SUMS README.md INSTALL.md \
+  manifest.yaml manifest.env SHA256SUMS README.md \
   cluster-defaults.yaml config deploy/scripts \
   repositories/registry/mapping.yaml \
   repositories/registry/images/images.txt \
