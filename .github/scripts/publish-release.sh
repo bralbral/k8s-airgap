@@ -35,10 +35,10 @@ trap 'rm -f "${notes_file}"' EXIT
   echo "| Component | Version |"
   echo "| --- | --- |"
   echo "| Kubernetes | ${KUBERNETES_VERSION} |"
-  echo "| Kubespray | ${KUBESPRAY_VERSION} |"
   echo "| containerd | ${CONTAINERD_VERSION} |"
   echo "| Flannel | ${FLANNEL_VERSION} |"
   echo "| Harbor | ${HARBOR_VERSION} |"
+  echo "| Docker Compose | ${DOCKER_COMPOSE_VERSION} |"
   echo "| Helm | ${HELM_VERSION} |"
   echo "| K9s | ${K9S_VERSION} |"
   echo

@@ -8,7 +8,6 @@ out_dir="${1:-${repo_root}/dist/k8s-airgap-${KUBERNETES_VERSION}-debian12-amd64}
 tools_dir="${out_dir}/tools"
 repositories_dir="${out_dir}/repositories"
 apt_repository_dir="${repositories_dir}/apt"
-files_repository_dir="${repositories_dir}/files"
 registry_repository_dir="${repositories_dir}/registry"
 images_repository_dir="${registry_repository_dir}/images"
 images_dir="${images_repository_dir}/archives"
@@ -33,11 +32,6 @@ require docker
 require gzip
 require unzip
 require zstd
-require python3
-python3 -m pip --version >/dev/null || {
-  echo "Missing required Python module: pip" >&2
-  exit 1
-}
 
 mkdir -p \
   "${tools_dir}" \
@@ -47,16 +41,12 @@ mkdir -p \
   "${charts_dir}" \
   "${charts_repository_dir}/values" \
   "${apt_repository_dir}" \
-  "${files_repository_dir}/content" \
-  "${repositories_dir}/python/wheels" \
   "${platform_dir}/manifests/upstream" \
   "${platform_dir}/manifests/source" \
   "${deploy_scripts_dir}" \
   "${nodes_dir}/ansible/templates" \
   "${infrastructure_dir}/apt" \
   "${infrastructure_dir}/harbor" \
-  "${out_dir}/installers/kubespray/source" \
-  "${out_dir}/deploy/kubespray" \
   "${out_dir}/config"
 cp "${repo_root}/config/versions.env" "${out_dir}/manifest.env"
 cp "${repo_root}/config/cluster-defaults.yaml" "${out_dir}/cluster-defaults.yaml"
@@ -74,7 +64,6 @@ cp "${repo_root}/deploy/infrastructure/apt/nginx.conf" "${infrastructure_dir}/ap
 cp "${repo_root}/config/packages.txt" "${out_dir}/config/packages.txt"
 cp -R "${repo_root}/deploy/scripts/." "${deploy_scripts_dir}/"
 cp -R "${repo_root}/deploy/infrastructure/scripts/." "${infrastructure_dir}/scripts/"
-cp -R "${repo_root}/deploy/kubespray/." "${out_dir}/deploy/kubespray/"
 cp "$(command -v crane)" "${tools_dir}/crane"
 
 fetch() {
@@ -133,6 +122,11 @@ if [[ ! -x "${tools_dir}/crictl" ]]; then
   rm "${tools_dir}/crictl.tar.gz"
 fi
 
+fetch \
+  "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-linux-x86_64" \
+  "${tools_dir}/docker-compose"
+chmod 0755 "${tools_dir}/docker-compose"
+
 fetch "https://github.com/containernetworking/plugins/releases/download/${CNI_PLUGINS_VERSION}/cni-plugins-linux-amd64-${CNI_PLUGINS_VERSION}.tgz" "${tools_dir}/cni-plugins.tgz"
 fetch "https://github.com/containerd/containerd/releases/download/v${CONTAINERD_VERSION}/containerd-${CONTAINERD_VERSION}-linux-amd64.tar.gz" "${tools_dir}/containerd.tar.gz"
 fetch "https://github.com/opencontainers/runc/releases/download/${RUNC_VERSION}/runc.amd64" "${tools_dir}/runc"
@@ -143,116 +137,16 @@ fetch \
   "https://github.com/goharbor/harbor/releases/download/${HARBOR_VERSION}/${harbor_installer}" \
   "${infrastructure_dir}/harbor/${harbor_installer}"
 
-kubespray_archive="${out_dir}/installers/kubespray/kubespray-${KUBESPRAY_VERSION}.tar.gz"
-fetch \
-  "https://github.com/kubernetes-sigs/kubespray/archive/refs/tags/${KUBESPRAY_VERSION}.tar.gz" \
-  "${kubespray_archive}"
-tar -xzf "${kubespray_archive}" \
-  --strip-components=1 \
-  -C "${out_dir}/installers/kubespray/source"
-
-python3 -m pip download \
-  --disable-pip-version-check \
-  --dest "${repositories_dir}/python/wheels" \
-  --only-binary=:all: \
-  --platform manylinux_2_28_x86_64 \
-  --platform manylinux2014_x86_64 \
-  --implementation cp \
-  --python-version 311 \
-  --abi cp311 \
-  --requirement "${out_dir}/installers/kubespray/source/requirements.txt"
-cp \
-  "${out_dir}/installers/kubespray/source/requirements.txt" \
-  "${repositories_dir}/python/requirements.txt"
-
-builder_venv="$(mktemp -d)"
-python3 -m venv "${builder_venv}/venv"
-"${builder_venv}/venv/bin/pip" install \
-  --disable-pip-version-check \
-  --requirement "${out_dir}/installers/kubespray/source/requirements.txt"
-installed_collections="${builder_venv}/installed-collections.json"
-"${builder_venv}/venv/bin/ansible-galaxy" collection list --format json \
-  > "${installed_collections}"
-"${builder_venv}/venv/bin/python" - \
-  "${out_dir}/installers/kubespray/source/galaxy.yml" \
-  "${installed_collections}" \
-  "${repositories_dir}/python/required-collections.txt" <<'PY'
-import json
-import sys
-
-import yaml
-from packaging.specifiers import SpecifierSet
-from packaging.version import Version
-
-galaxy_path, installed_path, output_path = sys.argv[1:]
-with open(galaxy_path, encoding="utf-8") as stream:
-    required = yaml.safe_load(stream).get("dependencies", {})
-with open(installed_path, encoding="utf-8") as stream:
-    collection_paths = json.load(stream)
-
-installed = {}
-for collections in collection_paths.values():
-    installed.update(
-        (name, metadata["version"])
-        for name, metadata in collections.items()
-    )
-
-errors = []
-with open(output_path, "w", encoding="utf-8") as stream:
-    for name, constraint in sorted(required.items()):
-        version = installed.get(name)
-        if version is None:
-            errors.append(f"missing Ansible collection: {name} ({constraint})")
-            continue
-        if Version(version) not in SpecifierSet(str(constraint)):
-            errors.append(
-                f"incompatible Ansible collection: {name} {version} ({constraint})"
-            )
-        stream.write(f"{name}\t{constraint}\t{version}\n")
-
-if errors:
-    raise SystemExit("\n".join(errors))
-PY
-
-(
-  cd "${out_dir}/installers/kubespray/source"
-  PATH="${builder_venv}/venv/bin:${PATH}" \
-    bash contrib/offline/generate_list.sh \
-      -i "${out_dir}/deploy/kubespray/inventory/lab/hosts.yaml"
-)
-cp \
-  "${out_dir}/installers/kubespray/source/contrib/offline/temp/files.list" \
-  "${files_repository_dir}/files.list"
-cp \
-  "${out_dir}/installers/kubespray/source/contrib/offline/temp/images.list" \
-  "${images_repository_dir}/kubespray-images.txt"
-rm -rf "${builder_venv}"
-
-while read -r file_url; do
-  [[ -n "${file_url}" ]] || continue
-  case "${file_url}" in
-    https://*) ;;
-    *)
-      echo "Kubespray generated a non-HTTPS download URL: ${file_url}" >&2
-      exit 1
-      ;;
-  esac
-  relative_path="${file_url#https://}"
-  [[ "${relative_path}" != *..* && "${relative_path}" != *\?* ]] || {
-    echo "Unsafe or unsupported download URL: ${file_url}" >&2
-    exit 1
-  }
-  destination="${files_repository_dir}/content/${relative_path}"
-  mkdir -p "$(dirname "${destination}")"
-  fetch "${file_url}" "${destination}"
-done < "${files_repository_dir}/files.list"
-
 apt_repo_image="k8s-airgap/apt-repo:debian12-amd64"
 docker build \
   --file "${repo_root}/deploy/infrastructure/apt/Dockerfile" \
   --tag "${apt_repo_image}" \
   "${repo_root}"
 docker save "${apt_repo_image}" | gzip -9 > "${apt_repository_dir}/apt-repo-debian12-amd64.tar.gz"
+mkdir -p "${apt_repository_dir}/repository"
+docker run --rm --entrypoint tar "${apt_repo_image}" \
+  -C /usr/share/nginx/html/debian -cf - . |
+  tar -xf - -C "${apt_repository_dir}/repository"
 
 pull_chart() {
   local name="$1" repository="$2" version="$3"
@@ -284,11 +178,12 @@ sed \
   "${local_path_manifest}" > "${nodes_dir}/ansible/templates/local-path-provisioner.yaml.j2"
 
 "${tools_dir}/kubeadm" config images list --kubernetes-version "${KUBERNETES_VERSION}" > "${kubernetes_images_list}"
-cat "${images_repository_dir}/kubespray-images.txt" >> "${kubernetes_images_list}"
-printf 'ghcr.io/flannel-io/flannel:%s\n' "${FLANNEL_VERSION}" >> "${kubernetes_images_list}"
-printf 'ghcr.io/flannel-io/flannel-cni-plugin:%s\n' "${FLANNEL_CNI_PLUGIN_VERSION}" >> "${kubernetes_images_list}"
-printf 'docker.io/rancher/local-path-provisioner:%s\n' "${LOCAL_PATH_PROVISIONER_VERSION}" >> "${kubernetes_images_list}"
-printf 'docker.io/library/busybox:%s\n' "${BUSYBOX_VERSION}" >> "${kubernetes_images_list}"
+{
+  printf 'ghcr.io/flannel-io/flannel:%s\n' "${FLANNEL_VERSION}"
+  printf 'ghcr.io/flannel-io/flannel-cni-plugin:%s\n' "${FLANNEL_CNI_PLUGIN_VERSION}"
+  printf 'docker.io/rancher/local-path-provisioner:%s\n' "${LOCAL_PATH_PROVISIONER_VERSION}"
+  printf 'docker.io/library/busybox:%s\n' "${BUSYBOX_VERSION}"
+} >> "${kubernetes_images_list}"
 sort -u -o "${kubernetes_images_list}" "${kubernetes_images_list}"
 
 for chart in \
@@ -332,27 +227,31 @@ done < "${images_list}"
   printf '%s\n' '  architecture: amd64'
   printf '%s\n' 'repositories:'
   printf '%s\n' '  apt: repositories/apt'
-  printf '%s\n' '  files: repositories/files'
   printf '%s\n' '  images: repositories/registry/images'
   printf '%s\n' '  charts: repositories/registry/charts'
-  printf '%s\n' '  python: repositories/python'
   printf '%s\n' 'release_assets:'
   printf '%s\n' '  - bootstrap.tar.zst'
   printf '%s\n' '  - automation.tar.zst'
   printf '%s\n' '  - apt-debian12-amd64.tar.zst'
-  printf '%s\n' '  - kubespray-offline.tar.zst'
-  printf '%s\n' '  - python-ansible-debian12.tar.zst'
   printf '%s\n' '  - tools-linux-amd64.tar.zst'
   printf '%s\n' '  - tools-windows-amd64.tar.zst'
   printf '%s\n' '  - harbor-offline.tar.zst'
-  printf '%s\n' '  - images-kubernetes.tar.zst'
-  printf '%s\n' '  - images-networking.tar.zst'
   printf '%s\n' '  - charts-networking.tar.zst'
-  printf '%s\n' 'optional_release_assets:'
-  printf '%s\n' '  - images-extra.tar.zst'
+  printf '%s\n' 'release_asset_patterns:'
+  printf '%s\n' '  - images-kubernetes-*.tar.zst'
+  printf '%s\n' '  - images-networking-*.tar.zst'
+  printf '%s\n' 'optional_release_asset_patterns:'
+  printf '%s\n' '  - images-extra-*.tar.zst'
 } > "${out_dir}/manifest.yaml"
 
-(cd "${out_dir}" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+bundle_checksums="$(mktemp)"
+(
+  cd "${out_dir}"
+  find . -type f ! -name SHA256SUMS -print0 |
+    sort -z |
+    xargs -0 sha256sum > "${bundle_checksums}"
+)
+mv "${bundle_checksums}" "${out_dir}/SHA256SUMS"
 release_dir="${repo_root}/dist/release-${KUBERNETES_VERSION#v}-debian12-amd64"
 "${repo_root}/.github/scripts/package-release.sh" "${out_dir}" "${release_dir}"
 echo "Created modular release assets in ${release_dir}"

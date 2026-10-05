@@ -1,38 +1,36 @@
 # Kubernetes air-gap bundle for Debian 12
 
 This repository builds a versioned, transferable Kubernetes installation
-bundle for `amd64` Debian 12 nodes. The target installer is Kubespray with
-containerd and Flannel VXLAN. The bundle contains Kubespray and its offline
-Python dependencies, a Dockerized minimal Debian repository and the official
-Harbor offline installer; cluster images are imported into Harbor after
-transfer into the isolated network. The older direct-kubeadm playbooks remain
-available only while the Kubespray migration is completed.
+bundle for `amd64` Debian 12 nodes. It installs vanilla Kubernetes with
+containerd and Flannel VXLAN. Kubernetes is bootstrapped with the upstream
+`kubeadm`, `kubelet` and `kubectl` binaries. The bundle also contains a
+Dockerized minimal Debian repository and the official Harbor offline installer;
+cluster images are imported into Harbor after transfer into the isolated
+network.
 
 The first target profile is deliberately conservative:
 
-- Kubernetes installed with Kubespray;
+- vanilla Kubernetes installed with kubeadm and the repository's Ansible playbooks;
 - containerd with systemd cgroups;
 - Flannel, pod network `10.244.0.0/16`;
 - local-path-provisioner for initial local volumes;
 - MetalLB in L2 mode and Traefik with the Kubernetes Gateway API;
-- Helm and K9s in the administrator tools bundle;
-- kube-prometheus-stack and Thanos prepared for an external MinIO endpoint;
-  Grafana values prepared for an external PostgreSQL database.
+- Helm and K9s in the administrator tools bundle.
 
 For a memory-constrained local environment, Harbor and the Debian repository
-run as Docker Compose services on the physical host while Kubernetes runs on
-three Debian 12 VMs. See [docs/LAB-TOPOLOGY.md](docs/LAB-TOPOLOGY.md) for the
-15 GiB resource budget, host networking and startup procedure.
+run as Docker services on the physical host while Kubernetes runs on three
+Debian 12 VMs. The source repository keeps the detailed lab topology under
+`docs/`; the transferable release contains the self-contained `INSTALL.md`.
 
 The bundle builder downloads the core binaries, Kubernetes/Flannel/local-path
-images, the Harbor offline installer, a Docker image containing the Debian
-package closure, and the pinned MetalLB and Traefik charts with their image closure.
+images, the Harbor offline installer, Docker Compose, a file-based Debian
+package closure plus its ready-to-run nginx image, and the pinned MetalLB and
+Traefik charts with their image closure.
 Transferable repositories are grouped under `repositories/`: Debian packages
-under `apt`, images and Helm artifacts under `registry`, Python wheels under
-`python`, and offline Git payloads under `git`.
-`deploy/platform/charts/charts.lock` also pins the separate monitoring stage; its chart
-download, rendering and complete image closure remain to be implemented because
-those charts must be selected and tested together.
+under `apt`, with images and Helm artifacts under `registry`.
+`deploy/platform/charts/charts.lock` also records planning versions for the
+separate monitoring stage. Monitoring, MinIO and Argo CD are not part of the
+current downloadable bundle yet.
 
 ## Containerd registry mirror design
 
@@ -42,13 +40,13 @@ containerd redirects each source registry to a dedicated public Harbor project.
 
 | Source registry | Harbor project | Example destination |
 | --- | --- | --- |
-| `docker.io` | `docker` | `harbor.internal/docker/apache/airflow:2.10.5` |
-| `ghcr.io` | `ghcr` | `harbor.internal/ghcr/flannel-io/flannel:v0.28.7` |
-| `quay.io` | `quay` | `harbor.internal/quay/prometheus/node-exporter:v1.9.1` |
-| `registry.k8s.io` | `k8s` | `harbor.internal/k8s/kube-apiserver:v1.36.2` |
+| `docker.io` | `docker` | `harbor.internal:8080/docker/apache/airflow:2.10.5` |
+| `ghcr.io` | `ghcr` | `harbor.internal:8080/ghcr/flannel-io/flannel:v0.28.7` |
+| `quay.io` | `quay` | `harbor.internal:8080/quay/prometheus/node-exporter:v1.9.1` |
+| `registry.k8s.io` | `k8s` | `harbor.internal:8080/k8s/kube-apiserver:v1.36.2` |
 
 For example, `docker.io/apache/airflow:2.10.5` is stored as
-`harbor.internal/docker/apache/airflow:2.10.5`, while the workload continues to
+`harbor.internal:8080/docker/apache/airflow:2.10.5`, while the workload continues to
 reference `docker.io/apache/airflow:2.10.5`. The source registry is represented
 by the Harbor project, and the complete `apache/airflow` repository path is
 preserved. This avoids repository-name collisions and does not require changes
@@ -79,55 +77,53 @@ Create one `hosts.toml` namespace for every mirrored upstream registry:
 └── registry.k8s.io/hosts.toml
 ```
 
-The recommended configuration for an isolated network uses HTTPS but skips
-certificate verification, so no Harbor CA needs to be copied to the nodes:
+The lab configuration uses plain HTTP, so no Harbor certificate or CA needs to
+be copied to the nodes:
 
 ```toml
 # /etc/containerd/certs.d/docker.io/hosts.toml
-[host."https://harbor.internal/v2/docker"]
+[host."http://harbor.internal:8080/v2/docker"]
   capabilities = ["pull", "resolve"]
   override_path = true
-  skip_verify = true
 ```
 
 ```toml
 # /etc/containerd/certs.d/ghcr.io/hosts.toml
-[host."https://harbor.internal/v2/ghcr"]
+[host."http://harbor.internal:8080/v2/ghcr"]
   capabilities = ["pull", "resolve"]
   override_path = true
-  skip_verify = true
 ```
 
 ```toml
 # /etc/containerd/certs.d/quay.io/hosts.toml
-[host."https://harbor.internal/v2/quay"]
+[host."http://harbor.internal:8080/v2/quay"]
   capabilities = ["pull", "resolve"]
   override_path = true
-  skip_verify = true
 ```
 
 ```toml
 # /etc/containerd/certs.d/registry.k8s.io/hosts.toml
-[host."https://harbor.internal/v2/k8s"]
+[host."http://harbor.internal:8080/v2/k8s"]
   capabilities = ["pull", "resolve"]
   override_path = true
-  skip_verify = true
 ```
 
-If Harbor serves plain HTTP instead, replace `https://` with `http://` and omit
-`skip_verify`. Plain HTTP is unencrypted; HTTPS with `skip_verify = true` is the
-preferred insecure option. For verified TLS, remove `skip_verify` and install
-the Harbor CA on every node.
+Plain HTTP is unencrypted and is intended only for the isolated private
+network. To switch to HTTPS, change the inventory variables, configure Harbor
+TLS and install the Harbor CA on every node. `skip_verify` can be used for a
+lab-only self-signed endpoint.
 
-Only the real Harbor name needs local resolution:
+Only the real Harbor and Kubernetes API names need local resolution. The
+Ansible inventory supplies these entries to the node preparation playbook:
 
 ```text
 10.10.0.5 harbor.internal
+10.10.0.11 k8s-api.internal
 ```
 
 Do not map `docker.io`, `ghcr.io`, `quay.io` or `registry.k8s.io` in
 `/etc/hosts`. Containerd performs the redirection and connects to
-`harbor.internal`, so Harbor only needs a certificate for its own hostname.
+`harbor.internal`.
 
 After changing `/etc/containerd/config.toml`, restart containerd and test pulls
 using the original image names:
@@ -160,8 +156,11 @@ bootstrap and verification.
 3. Download all semantic assets from that GitHub Release. Its tag has the form
    `airgap-v1.36.2-build.RUN.ATTEMPT`.
 4. Transfer the release directory into the isolated network and run `bash unpack-release.sh . ../k8s-airgap`.
-5. Import images into Harbor.
-6. Adjust `deploy/kubespray/inventory/lab/hosts.yaml` and run Kubespray.
+5. Run `deploy/infrastructure/scripts/bootstrap-host.sh` on the Debian 12
+   infrastructure host, then start the bundled APT service and Harbor.
+6. Import images and Helm OCI charts into Harbor.
+7. Adjust `deploy/nodes/ansible/inventory/hosts.yml` and run the playbooks from
+   [INSTALL.md](INSTALL.md).
 
 No credentials, CA private keys, kubeconfigs, MinIO keys or Harbor passwords belong in this repository or in its releases.
 
@@ -172,7 +171,6 @@ config/                 pinned versions and repository mappings
 deploy/scripts/          release assembly and verification
 deploy/infrastructure/  APT repository and Harbor bootstrap
 deploy/nodes/ansible/    Debian 12 node preparation
-deploy/kubespray/        lab inventory and offline overrides
 deploy/platform/         charts, values and Kubernetes manifests
 docs/                    installation and operations documentation
 .github/workflows/       GitHub Actions entry points
@@ -187,10 +185,7 @@ this hierarchy:
 ```text
 repositories/
 ├── apt/
-├── files/
-│   ├── content/
-│   └── files.list
-├── registry/
+└── registry/
 │   ├── images/
 │   │   ├── archives/
 │   │   └── images.txt
@@ -198,5 +193,4 @@ repositories/
 │   │   ├── archives/
 │   │   └── charts.lock
 │   └── mapping.yaml
-└── python/
 ```

@@ -2,7 +2,8 @@
 set -Eeuo pipefail
 
 usage() { echo "Usage: $0 --registry harbor.example [--insecure] <bundle-dir>" >&2; exit 2; }
-registry= insecure=false
+registry=''
+insecure=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --registry) registry="$2"; shift 2 ;;

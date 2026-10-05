@@ -9,20 +9,23 @@ replace them with values for the isolated environment.
 | Control-plane node | `10.10.0.11` |
 | Worker node | `10.10.0.21` |
 | Kubernetes API name | `k8s-api.internal` |
-| Harbor registry | `harbor.internal` |
+| Harbor registry | `harbor.internal:8080` |
 | Harbor mirror projects | `docker`, `ghcr`, `quay`, `k8s` |
 | MetalLB address pool | `10.10.0.240-10.10.0.250` |
 
 ## Prerequisites
 
-For the supported local layout with Docker infrastructure on the host and three
-Debian 12 VMs, first follow
-[docs/LAB-TOPOLOGY.md](docs/LAB-TOPOLOGY.md). It provides the host services and
-the lab inventory used below.
+For the supported local layout, Harbor and the APT repository run as Docker
+services on an infrastructure host, while Kubernetes runs on three Debian 12
+machines. The infrastructure host must be reachable from every node on ports
+`8080` and `8081` in the supplied lab configuration.
 
-The administrator workstation needs SSH access to every node and Ansible. Every
-cluster node must be an `amd64` Debian 12 system with these packages already
-installed:
+The infrastructure host doubles as the administrator workstation in the
+supported profile. It needs Debian 12, SSH access to every node, at least 4 GiB
+RAM and 40 GiB free disk. The bundled bootstrap script installs Docker and
+Ansible from the local file-based APT repository. Every cluster node must be an
+`amd64` Debian 12 system with SSH, sudo and APT; the APT playbook bootstraps
+Python when needed and installs the remaining prerequisites:
 
 ```text
 ca-certificates chrony conntrack curl ethtool iproute2 ipset iptables nfs-common
@@ -30,30 +33,25 @@ nftables python3 rsync socat util-linux
 ```
 
 The lab profile builds the prerequisite dependency closure into a Dockerized
-APT repository on the host. Run `playbooks/configure-apt.yml` before
-`playbooks/prepare-nodes.yml`. For production, replace this minimal unsigned
+APT repository on the host. For production, replace this minimal unsigned
 repository with a dated and signed Debian snapshot.
 
-Grafana can use an external PostgreSQL database for its own state; it does not
-replace the Prometheus/Thanos metrics store. See
-[docs/EXTERNAL-GRAFANA-POSTGRES.md](docs/EXTERNAL-GRAFANA-POSTGRES.md) before
-installing the monitoring chart.
+The bundled Harbor installer creates public projects named `docker`, `ghcr`,
+`quay`, `k8s` and `charts`. The first four mirror `docker.io`, `ghcr.io`, `quay.io` and
+`registry.k8s.io`, respectively. Anonymous pull access is required because
+kubeadm fetches control-plane images before Kubernetes image pull secrets are
+available. Image upload still requires authentication.
 
-The environment also needs an existing Harbor instance. Create public projects
-named `docker`, `ghcr`, `quay` and `k8s`. They mirror `docker.io`, `ghcr.io`,
-`quay.io` and `registry.k8s.io`, respectively. Anonymous pull access is required
-because kubeadm fetches control-plane images before Kubernetes image pull
-secrets are available. Image upload can still require authentication.
+By default, the supplied inventory uses Harbor over plain HTTP on port `8080`.
+No Harbor certificate or CA is required in this isolated lab profile. The
+`--insecure` option tells the bundled upload client to use the same mode.
 
-By default, the supplied inventory uses Harbor over HTTPS with certificate
-verification disabled. No Harbor CA has to be copied to the nodes in this mode.
-The `--insecure` import option applies the equivalent behavior to the upload
-client.
-
-All nodes must resolve `harbor.internal` and `k8s-api.internal`. For a
-single-control-plane installation, `k8s-api.internal` resolves to that node. For
-an HA installation it must resolve to a load balancer or virtual IP; joining
-additional control-plane nodes is outside the current playbooks.
+All nodes must resolve `harbor.internal` and `k8s-api.internal`. The preparation
+playbook manages their `/etc/hosts` entries from `airgap_host_entries` in the
+inventory. For a single-control-plane installation, `k8s-api.internal` resolves
+to that node. For an HA installation it must resolve to a load balancer or
+virtual IP; joining additional control-plane nodes is outside the current
+playbooks.
 
 For verified TLS, set `harbor_skip_tls_verify: false` and install the private CA
 on every node before running Ansible:
@@ -85,15 +83,55 @@ cd ../k8s-airgap
 The unpacker checks `SHA256SUMS`, extracts all component archives and runs the
 internal bundle verification. It must report `Bundle structure: OK`.
 
-## 2. Import the images into Harbor
+## 2. Bootstrap the infrastructure host
+
+Run the bootstrap from the unpacked bundle. It replaces active APT sources with
+the bundle's local `file:` repository, preserving the originals under
+`/etc/apt/k8s-airgap-bootstrap-backup`, then installs Docker, Docker Compose and
+Ansible without network access:
+
+```bash
+sudo ./deploy/infrastructure/scripts/bootstrap-host.sh "$PWD"
+```
+
+Load and start the packaged APT service:
+
+```bash
+cp deploy/infrastructure/.env.example deploy/infrastructure/.env
+docker load < repositories/apt/apt-repo-debian12-amd64.tar.gz
+docker compose \
+  --env-file deploy/infrastructure/.env \
+  -f deploy/infrastructure/compose.yaml \
+  up -d --no-build apt-repo
+curl --fail http://127.0.0.1:8081/healthz
+```
+
+Install Harbor from its offline installer. The script disables the template's
+HTTPS block, starts Harbor over HTTP and creates the four public mirror
+projects:
+
+```bash
+export HARBOR_HOSTNAME=harbor.internal
+export HARBOR_HTTP_PORT=8080
+export HARBOR_DATA_DIR=/var/lib/harbor
+export HARBOR_ADMIN_PASSWORD='replace-with-a-private-password'
+sudo -E ./deploy/infrastructure/scripts/install-harbor.sh \
+  deploy/infrastructure/harbor/harbor-offline-installer-v2.15.2.tgz
+```
+
+The infrastructure host resolves `harbor.internal` to itself. The inventory in
+step 5 maps the same name to the infrastructure host's network address on all
+cluster nodes.
+
+## 3. Import the images into Harbor
 
 Authenticate with the bundled `crane` binary. It prompts for the password when
 one is not supplied on the command line:
 
 ```bash
-./tools/crane auth login harbor.internal -u admin
+./tools/crane auth login harbor.internal:8080 --insecure -u admin
 ./deploy/infrastructure/scripts/import-images-to-harbor.sh \
-  --registry harbor.internal \
+  --registry harbor.internal:8080 \
   --insecure \
   "$PWD"
 ```
@@ -103,9 +141,9 @@ registry to its Harbor project. For example:
 
 ```text
 docker.io/apache/airflow:2.10.5
-  -> harbor.internal/docker/apache/airflow:2.10.5
+  -> harbor.internal:8080/docker/apache/airflow:2.10.5
 registry.k8s.io/kube-apiserver:v1.36.2
-  -> harbor.internal/k8s/kube-apiserver:v1.36.2
+  -> harbor.internal:8080/k8s/kube-apiserver:v1.36.2
 ```
 
 Confirm that Harbor contains all images listed in
@@ -113,7 +151,22 @@ Confirm that Harbor contains all images listed in
 their original source image names; containerd performs the mirror redirection
 on every node.
 
-## 3. Copy the unpacked bundle to every node
+Publish the bundled Helm archives into Harbor's `charts` OCI project:
+
+```bash
+export HARBOR_PASSWORD='the-same-private-password'
+./deploy/infrastructure/scripts/import-charts-to-harbor.sh \
+  --registry harbor.internal:8080 \
+  --plain-http \
+  "$PWD"
+unset HARBOR_PASSWORD
+```
+
+The cluster playbooks install the initial networking charts directly from the
+verified local `.tgz` files. The OCI copies in Harbor are available to later
+offline Helm and GitOps deployments.
+
+## 4. Copy the unpacked bundle to every node
 
 The playbooks expect the bundle contents directly under `/opt/k8s-airgap` on
 every control-plane and worker node. The following example copies it to one
@@ -131,7 +184,7 @@ Do not create an extra versioned directory below `/opt/k8s-airgap`. For
 example, `/opt/k8s-airgap/tools/kubeadm` and
 `/opt/k8s-airgap/repositories/registry/images/images.txt` must exist.
 
-## 4. Configure the Ansible inventory
+## 5. Configure the Ansible inventory
 
 On the administrator workstation, enter the unpacked bundle's Ansible directory
 and create the local inventory:
@@ -153,9 +206,16 @@ all:
     pod_subnet: 10.244.0.0/16
     service_subnet: 10.96.0.0/12
     control_plane_endpoint: k8s-api.internal:6443
-    harbor_registry: harbor.internal
-    harbor_plain_http: false
-    harbor_skip_tls_verify: true
+    apt_repo_url: http://10.10.0.5:8081/debian
+    apt_repo_trusted: true
+    harbor_registry: harbor.internal:8080
+    harbor_plain_http: true
+    harbor_skip_tls_verify: false
+    airgap_host_entries:
+      - address: 10.10.0.5
+        names: [harbor.internal]
+      - address: 10.10.0.11
+        names: [k8s-api.internal]
     local_path: /var/local-path-provisioner
     # Reserved, unused addresses on the same L2 network as the nodes.
     # Exclude this range from DHCP before applying the playbook.
@@ -174,18 +234,27 @@ all:
 ```
 
 The SSH host keys must already be trusted because host-key checking is enabled.
-Verify access before changing the nodes:
+Verify raw SSH access before changing the nodes. This check does not require
+Python to be installed remotely:
 
 ```bash
-ansible -i inventory/hosts.yml all -m ping
-ansible -i inventory/hosts.yml all -b -m command -a 'cat /etc/debian_version'
+ansible -i inventory/hosts.yml all -b -m raw -a 'cat /etc/debian_version'
 ```
 
-## 5. Prepare the nodes
+## 6. Prepare the nodes
 
-Run the preparation playbook:
+The normal path installs the complete base cluster with one command. It
+configures APT, prepares every node, runs `kubeadm init` and joins the workers:
 
 ```bash
+ansible-playbook -i inventory/hosts.yml playbooks/install-cluster.yml
+```
+
+After that command succeeds, continue at step 9. To troubleshoot or control
+each phase separately, run the first two phases explicitly:
+
+```bash
+ansible-playbook -i inventory/hosts.yml playbooks/configure-apt.yml
 ansible-playbook -i inventory/hosts.yml playbooks/prepare-nodes.yml
 ```
 
@@ -209,7 +278,7 @@ ssh deploy@10.10.0.11 \
   'sudo crictl --runtime-endpoint unix:///run/containerd/containerd.sock pull registry.k8s.io/pause:3.10.2'
 ```
 
-## 6. Initialise the control plane
+## 7. Initialise the control plane
 
 ```bash
 ansible-playbook -i inventory/hosts.yml playbooks/init-control-plane.yml
@@ -229,7 +298,7 @@ ssh deploy@10.10.0.11 \
 Wait until the control-plane node is `Ready` and the Flannel pods are running
 before joining workers.
 
-## 7. Join the worker nodes
+## 8. Join the worker nodes
 
 Generate a fresh join command on the control-plane node:
 
@@ -247,7 +316,7 @@ ansible-playbook -i inventory/hosts.yml playbooks/join-workers.yml \
 
 The join token is temporary. Generate a new command if it expires.
 
-## 8. Install the external traffic edge
+## 9. Install the external traffic edge
 
 Before this step, reserve `metallb_ip_address_pool` outside DHCP and ensure TCP
 `80` and `443` are permitted to its addresses. Run this only after at least one
@@ -266,7 +335,7 @@ ssh deploy@10.10.0.11 \
   'sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf get svc -n traefik'
 ```
 
-## 9. Verify the cluster
+## 10. Verify the cluster
 
 ```bash
 ssh deploy@10.10.0.11 \

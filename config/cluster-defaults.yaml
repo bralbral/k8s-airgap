@@ -6,6 +6,6 @@ serviceSubnet: 10.96.0.0/12
 dnsDomain: cluster.local
 flannelBackend: vxlan
 localPath: /var/local-path-provisioner
-harborRegistry: harbor.internal
-harborPlainHTTP: false
-harborSkipTLSVerify: true
+harborRegistry: harbor.internal:8080
+harborPlainHTTP: true
+harborSkipTLSVerify: false

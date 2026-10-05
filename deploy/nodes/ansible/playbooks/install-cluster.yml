@@ -1,0 +1,8 @@
+---
+# The imported playbooks remain directly runnable for troubleshooting. This
+# entry point keeps the generated join command in memory between plays and
+# installs the complete base cluster in one Ansible invocation.
+- ansible.builtin.import_playbook: configure-apt.yml
+- ansible.builtin.import_playbook: prepare-nodes.yml
+- ansible.builtin.import_playbook: init-control-plane.yml
+- ansible.builtin.import_playbook: join-workers.yml

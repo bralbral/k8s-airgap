@@ -7,9 +7,16 @@ all:
     pod_subnet: 10.244.0.0/16
     service_subnet: 10.96.0.0/12
     control_plane_endpoint: k8s-api.internal:6443
-    harbor_registry: harbor.internal
-    harbor_plain_http: false
-    harbor_skip_tls_verify: true
+    apt_repo_url: http://10.10.0.5:8081/debian
+    apt_repo_trusted: true
+    harbor_registry: harbor.internal:8080
+    harbor_plain_http: true
+    harbor_skip_tls_verify: false
+    airgap_host_entries:
+      - address: 10.10.0.5
+        names: [harbor.internal]
+      - address: 10.10.0.11
+        names: [k8s-api.internal]
     local_path: /var/local-path-provisioner
     # Reserve this range outside DHCP before installation.
     metallb_ip_address_pool: 10.10.0.240-10.10.0.250

@@ -1,9 +1,0 @@
----
-ansible_user: deploy
-ansible_become: true
-
-# Node preparation configures the local chrony source before Kubespray runs.
-ntp_enabled: false
-
-# Nodes use the DNS configuration prepared by the node playbooks.
-disable_host_nameservers: false

@@ -8,17 +8,16 @@ required_files=(
   manifest.yaml
   manifest.env
   repositories/apt/apt-repo-debian12-amd64.tar.gz
-  repositories/files/files.list
+  repositories/apt/repository/dists/bookworm/Release
+  repositories/apt/repository/dists/bookworm/main/binary-amd64/Packages.gz
   repositories/registry/mapping.yaml
   repositories/registry/images/images.txt
-  repositories/python/requirements.txt
-  repositories/python/required-collections.txt
-  installers/kubespray/source/cluster.yml
-  installers/kubespray/source/galaxy.yml
-  installers/kubespray/source/requirements.txt
-  tools/kubeadm
-  tools/kubectl
-  tools/kubelet
+  repositories/registry/charts/charts.lock
+  deploy/nodes/ansible/templates/flannel.yaml.j2
+  deploy/nodes/ansible/templates/local-path-provisioner.yaml.j2
+  deploy/platform/manifests/upstream/gateway-api-standard.yaml
+  tools/cni-plugins.tgz
+  tools/containerd.tar.gz
   tools/windows-amd64/kubectl.exe
   tools/windows-amd64/k9s.exe
 )
@@ -30,19 +29,33 @@ for required_file in "${required_files[@]}"; do
   }
 done
 
-while read -r file_url; do
-  [[ -n "${file_url}" ]] || continue
-  relative_path="${file_url#https://}"
-  [[ -s "repositories/files/content/${relative_path}" ]] || {
-    echo "Kubespray file is missing or empty: ${relative_path}" >&2
+for required_pattern in \
+  'deploy/infrastructure/harbor/harbor-offline-installer-*.tgz' \
+  'repositories/registry/charts/archives/metallb-*.tgz' \
+  'repositories/registry/charts/archives/traefik-*.tgz'; do
+  compgen -G "${required_pattern}" >/dev/null || {
+    echo "Required bundle artifact is missing: ${required_pattern}" >&2
     exit 1
   }
-done < repositories/files/files.list
+done
 
-find repositories/python/wheels -maxdepth 1 -type f | grep -q . || {
-  echo "Python wheelhouse is empty" >&2
-  exit 1
-}
+required_executables=(
+  tools/crane
+  tools/crictl
+  tools/docker-compose
+  tools/helm
+  tools/kubeadm
+  tools/kubectl
+  tools/kubelet
+  tools/runc
+)
+
+for required_executable in "${required_executables[@]}"; do
+  [[ -x "${required_executable}" ]] || {
+    echo "Required bundle executable is missing or not executable: ${required_executable}" >&2
+    exit 1
+  }
+done
 
 while read -r image; do
   [[ -n "${image}" ]] || continue

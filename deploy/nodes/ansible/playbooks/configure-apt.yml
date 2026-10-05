@@ -2,7 +2,40 @@
 - name: Replace Debian repositories with the internal Debian 12 repository
   hosts: control_plane:workers
   become: true
-  gather_facts: true
+  gather_facts: false
+  pre_tasks:
+    - name: Bootstrap Python from the internal repository when absent
+      ansible.builtin.raw: |
+        set -eu
+        if command -v python3 >/dev/null 2>&1; then
+          exit 0
+        fi
+        install -d -m 0700 /etc/apt/airgap-backup
+        for source in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+          [ -e "${source}" ] || continue
+          mv "${source}" "/etc/apt/airgap-backup/$(basename "${source}")"
+        done
+        if [ -f /etc/apt/sources.list ]; then
+          cp -n /etc/apt/sources.list /etc/apt/airgap-backup/sources.list
+        fi
+        printf '%s\n' '# Managed by k8s-airgap' > /etc/apt/sources.list
+        cat > /etc/apt/sources.list.d/debian-airgap.sources <<'EOF'
+        Types: deb
+        URIs: {{ apt_repo_url }}
+        Suites: bookworm
+        Components: main
+        Architectures: amd64
+        Trusted: {{ 'yes' if (apt_repo_trusted | default(false)) else 'no' }}
+        EOF
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3
+        echo BOOTSTRAPPED_PYTHON
+      register: python_bootstrap
+      changed_when: "'BOOTSTRAPPED_PYTHON' in python_bootstrap.stdout"
+
+    - name: Gather facts after Python bootstrap
+      ansible.builtin.setup:
+
   tasks:
     - name: Require Debian 12
       ansible.builtin.assert:

@@ -6,14 +6,19 @@ all:
     kube_version: v1.36.2
     pod_subnet: 10.244.0.0/16
     service_subnet: 10.96.0.0/12
-    control_plane_endpoint: 192.168.122.11:6443
+    control_plane_endpoint: k8s-api.internal:6443
 
     # The libvirt default bridge exposes the host to guests as 192.168.122.1.
     apt_repo_url: http://192.168.122.1:8081/debian
     apt_repo_trusted: true
-    harbor_registry: 192.168.122.1:8080
+    harbor_registry: harbor.internal:8080
     harbor_plain_http: true
     harbor_skip_tls_verify: false
+    airgap_host_entries:
+      - address: 192.168.122.1
+        names: [harbor.internal]
+      - address: 192.168.122.11
+        names: [k8s-api.internal]
 
     local_path: /var/local-path-provisioner
     metallb_ip_address_pool: 192.168.122.240-192.168.122.250

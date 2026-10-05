@@ -11,6 +11,16 @@
           - ansible_distribution_major_version == '12'
         fail_msg: This playbook supports Debian 12 only.
 
+    - name: Configure isolated network host aliases
+      ansible.builtin.blockinfile:
+        path: /etc/hosts
+        marker: "# {mark} K8S-AIRGAP MANAGED HOSTS"
+        block: |
+          {% for entry in airgap_host_entries %}
+          {{ entry.address }} {{ entry.names | join(' ') }}
+          {% endfor %}
+      when: airgap_host_entries | length > 0
+
     - name: Disable swap immediately
       ansible.builtin.command: swapoff -a
       changed_when: false

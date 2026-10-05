@@ -1,6 +1,7 @@
 ---
 bundle_root: /opt/k8s-airgap
 containerd_config: /etc/containerd/config.toml
+airgap_host_entries: []
 node_packages:
   - ca-certificates
   - chrony

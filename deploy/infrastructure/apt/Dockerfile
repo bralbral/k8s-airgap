@@ -12,17 +12,12 @@ RUN set -eux; \
     printf 'deb %s bookworm-security main\n' "${DEBIAN_SECURITY_MIRROR}" >> /etc/apt/sources.list; \
     sed -i '/^#/d; /^[[:space:]]*$/d' /tmp/packages.txt; \
     apt-get update; \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends apt-rdepends apt-utils dpkg-dev; \
-    apt-rdepends $(tr '\n' ' ' < /tmp/packages.txt) 2>/dev/null \
-      | awk '/^[^ ]/ { print $1 }' \
-      | sort -u > /tmp/all-dependencies.txt; \
-    apt-cache dumpavail \
-      | awk '/^Package: / { print $2 }' \
-      | sort -u > /tmp/available-packages.txt; \
-    comm -12 /tmp/all-dependencies.txt /tmp/available-packages.txt > /tmp/resolved-packages.txt; \
-    mkdir -p /repo/pool/main /repo/dists/bookworm/main/binary-amd64; \
-    cd /repo/pool/main; \
-    xargs apt-get download < /tmp/resolved-packages.txt; \
+    mkdir -p /repo/pool/main/partial /repo/dists/bookworm/main/binary-amd64; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --download-only --no-install-recommends \
+      -o Dir::Cache::archives=/repo/pool/main \
+      $(tr '\n' ' ' < /tmp/packages.txt); \
+    rm -rf /repo/pool/main/lock /repo/pool/main/partial; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends apt-utils dpkg-dev; \
     cd /repo; \
     dpkg-scanpackages --multiversion pool/main /dev/null > dists/bookworm/main/binary-amd64/Packages; \
     gzip -9 -k dists/bookworm/main/binary-amd64/Packages; \

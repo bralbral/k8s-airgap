@@ -66,6 +66,7 @@ build and export automatically.
 Inside the isolated network, load and start the saved image without rebuilding:
 
 ```bash
+sudo ./deploy/infrastructure/scripts/bootstrap-host.sh "$PWD"
 docker load < repositories/apt/apt-repo-debian12-amd64.tar.gz
 docker compose --env-file deploy/infrastructure/.env -f deploy/infrastructure/compose.yaml up -d --no-build apt-repo
 ```
@@ -127,13 +128,7 @@ addresses if needed, then run:
 ```bash
 cd deploy/nodes/ansible
 ansible -i inventory/hosts.yml all -m ping
-ansible-playbook -i inventory/hosts.yml playbooks/configure-apt.yml
-ansible-playbook -i inventory/hosts.yml playbooks/prepare-nodes.yml
-ansible-playbook -i inventory/hosts.yml playbooks/init-control-plane.yml
-JOIN_COMMAND="$(ssh deploy@192.168.122.11 \
-  'sudo kubeadm token create --print-join-command')"
-ansible-playbook -i inventory/hosts.yml playbooks/join-workers.yml \
-  -e "join_command=${JOIN_COMMAND}"
+ansible-playbook -i inventory/hosts.yml playbooks/install-cluster.yml
 ```
 
 The APT playbook preserves previous source files under

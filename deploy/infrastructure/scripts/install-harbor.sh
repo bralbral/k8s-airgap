@@ -56,6 +56,18 @@ sed -i \
   -e "s|^data_volume:.*|data_volume: ${harbor_data_dir}|" \
   "${harbor_dir}/harbor.yml"
 
+# The isolated lab intentionally uses plain HTTP. Harbor's template enables an
+# HTTPS block with placeholder certificate paths, which must be disabled or the
+# offline installer rejects the configuration.
+harbor_config_tmp="$(mktemp)"
+awk '
+  /^https:[[:space:]]*$/ { in_https = 1 }
+  in_https && NR > 1 && /^[^#[:space:]]/ && !/^https:[[:space:]]*$/ { in_https = 0 }
+  in_https { print "# " $0; next }
+  { print }
+' "${harbor_dir}/harbor.yml" > "${harbor_config_tmp}"
+mv "${harbor_config_tmp}" "${harbor_dir}/harbor.yml"
+
 (
   cd "${harbor_dir}"
   ./install.sh
@@ -74,9 +86,12 @@ for attempt in $(seq 1 60); do
 done
 
 mapfile -t harbor_projects < <(
-  awk '
-    /^  [^#[:space:]][^:]*:[[:space:]]+[^#[:space:]]+/ { print $2 }
-  ' "${mapping_file}" | sort -u
+  {
+    printf '%s\n' charts
+    awk '
+      /^  [^#[:space:]][^:]*:[[:space:]]+[^#[:space:]]+/ { print $2 }
+    ' "${mapping_file}"
+  } | sort -u
 )
 [[ "${#harbor_projects[@]}" -gt 0 ]] || {
   echo "No Harbor projects found in ${mapping_file}" >&2

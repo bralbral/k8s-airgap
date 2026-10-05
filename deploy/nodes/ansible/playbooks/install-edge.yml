@@ -7,6 +7,7 @@
       ansible.builtin.command: >-
         {{ bundle_root }}/tools/helm upgrade --install metallb
         {{ bundle_root }}/repositories/registry/charts/archives/metallb-{{ metallb_version }}.tgz
+        --kubeconfig /etc/kubernetes/admin.conf
         --namespace metallb-system --create-namespace --wait --timeout 5m
       changed_when: true
 
@@ -30,6 +31,7 @@
       ansible.builtin.command: >-
         {{ bundle_root }}/tools/helm upgrade --install traefik
         {{ bundle_root }}/repositories/registry/charts/archives/traefik-{{ traefik_chart_version }}.tgz
+        --kubeconfig /etc/kubernetes/admin.conf
         --namespace traefik --create-namespace --wait --timeout 5m
         --values {{ bundle_root }}/repositories/registry/charts/values/traefik.yaml
       changed_when: true
