@@ -15,18 +15,24 @@ replace them with values for the isolated environment.
 
 ## Prerequisites
 
+For the supported local layout with Docker infrastructure on the host and three
+Debian 12 VMs, first follow
+[docs/LAB-TOPOLOGY.md](docs/LAB-TOPOLOGY.md). It provides the host services and
+the lab inventory used below.
+
 The administrator workstation needs SSH access to every node and Ansible. Every
 cluster node must be an `amd64` Debian 12 system with these packages already
 installed:
 
 ```text
-ca-certificates curl conntrack socat ipset iptables ethtool nfs-common util-linux
+ca-certificates chrony conntrack curl ethtool iproute2 ipset iptables nfs-common
+nftables python3 rsync socat util-linux
 ```
 
-The current bundle does not contain Debian packages: its `apt/` directory is
-reserved for a future package stage. Install the prerequisites from an internal
-APT mirror or transfer their `.deb` dependency closure before following this
-guide.
+The lab profile builds the prerequisite dependency closure into a Dockerized
+APT repository on the host. Run `playbooks/configure-apt.yml` before
+`playbooks/prepare-nodes.yml`. For production, replace this minimal unsigned
+repository with a dated and signed Debian snapshot.
 
 Grafana can use an external PostgreSQL database for its own state; it does not
 replace the Prometheus/Thanos metrics store. See
@@ -58,18 +64,26 @@ sudo install -m 0644 harbor-ca.crt \
 sudo update-ca-certificates
 ```
 
-## 1. Verify and unpack the release
+## 1. Download, verify and assemble the release
 
-Run these commands in the directory containing the downloaded release assets:
+Download every asset from one GitHub Release into the same directory. With the
+GitHub CLI this can be done on the connected machine before transfer:
 
 ```bash
-sha256sum -c k8s-airgap-v1.36.2-debian12-amd64.tar.zst.sha256
-tar --zstd -xf k8s-airgap-v1.36.2-debian12-amd64.tar.zst
-cd k8s-airgap-v1.36.2-debian12-amd64
-./scripts/verify-bundle.sh "$PWD"
+gh release download airgap-RELEASE --dir k8s-airgap-release
 ```
 
-The last command must report `OK` for every bundled file.
+Transfer that directory into the isolated network, then assemble the semantic
+assets into one working tree:
+
+```bash
+cd k8s-airgap-release
+bash unpack-release.sh "$PWD" ../k8s-airgap
+cd ../k8s-airgap
+```
+
+The unpacker checks `SHA256SUMS`, extracts all component archives and runs the
+internal bundle verification. It must report `Bundle structure: OK`.
 
 ## 2. Import the images into Harbor
 
@@ -78,7 +92,7 @@ one is not supplied on the command line:
 
 ```bash
 ./tools/crane auth login harbor.internal -u admin
-./scripts/import-images-to-harbor.sh \
+./deploy/infrastructure/scripts/import-images-to-harbor.sh \
   --registry harbor.internal \
   --insecure \
   "$PWD"
@@ -94,9 +108,10 @@ registry.k8s.io/kube-apiserver:v1.36.2
   -> harbor.internal/k8s/kube-apiserver:v1.36.2
 ```
 
-Confirm that Harbor contains all images listed in `images.txt`. Workload
-manifests continue to use their original source image names; containerd performs
-the mirror redirection on every node.
+Confirm that Harbor contains all images listed in
+`repositories/registry/images/images.txt`. Workload manifests continue to use
+their original source image names; containerd performs the mirror redirection
+on every node.
 
 ## 3. Copy the unpacked bundle to every node
 
@@ -109,11 +124,12 @@ scp -r . deploy@10.10.0.11:/tmp/k8s-airgap
 ssh deploy@10.10.0.11 \
   'sudo mkdir -p /opt/k8s-airgap && sudo cp -a /tmp/k8s-airgap/. /opt/k8s-airgap/'
 ssh deploy@10.10.0.11 \
-  'sudo /opt/k8s-airgap/scripts/verify-bundle.sh /opt/k8s-airgap'
+  'sudo /opt/k8s-airgap/deploy/scripts/verify-bundle.sh /opt/k8s-airgap'
 ```
 
 Do not create an extra versioned directory below `/opt/k8s-airgap`. For
-example, `/opt/k8s-airgap/tools/kubeadm` must exist.
+example, `/opt/k8s-airgap/tools/kubeadm` and
+`/opt/k8s-airgap/repositories/registry/images/images.txt` must exist.
 
 ## 4. Configure the Ansible inventory
 
@@ -121,7 +137,7 @@ On the administrator workstation, enter the unpacked bundle's Ansible directory
 and create the local inventory:
 
 ```bash
-cd ansible
+cd deploy/nodes/ansible
 cp inventory/hosts.example.yml inventory/hosts.yml
 ```
 

@@ -1,6 +1,21 @@
 ---
 bundle_root: /opt/k8s-airgap
 containerd_config: /etc/containerd/config.toml
+node_packages:
+  - ca-certificates
+  - chrony
+  - conntrack
+  - curl
+  - ethtool
+  - iproute2
+  - ipset
+  - iptables
+  - nfs-common
+  - nftables
+  - python3
+  - rsync
+  - socat
+  - util-linux
 containerd_registry_mirrors:
   - upstream: docker.io
     project: docker

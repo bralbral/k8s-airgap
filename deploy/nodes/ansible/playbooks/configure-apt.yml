@@ -1,0 +1,76 @@
+---
+- name: Replace Debian repositories with the internal Debian 12 repository
+  hosts: control_plane:workers
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Require Debian 12
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == 'Debian'
+          - ansible_distribution_major_version == '12'
+          - apt_repo_url is defined
+        fail_msg: Debian 12 and apt_repo_url are required.
+
+    - name: Create repository backup directory
+      ansible.builtin.file:
+        path: /etc/apt/airgap-backup
+        state: directory
+        mode: '0700'
+
+    - name: Find existing additional APT sources
+      ansible.builtin.find:
+        paths: /etc/apt/sources.list.d
+        patterns:
+          - '*.list'
+          - '*.sources'
+        excludes: debian-airgap.sources
+        file_type: file
+      register: existing_apt_sources
+
+    - name: Preserve existing additional APT sources
+      ansible.builtin.command:
+        argv:
+          - mv
+          - "{{ item.path }}"
+          - "/etc/apt/airgap-backup/{{ item.path | basename }}"
+        creates: "/etc/apt/airgap-backup/{{ item.path | basename }}"
+      loop: "{{ existing_apt_sources.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+
+    - name: Check the legacy sources.list
+      ansible.builtin.stat:
+        path: /etc/apt/sources.list
+      register: legacy_sources
+
+    - name: Preserve the legacy sources.list
+      ansible.builtin.copy:
+        remote_src: true
+        src: /etc/apt/sources.list
+        dest: /etc/apt/airgap-backup/sources.list
+        mode: '0600'
+        force: false
+      when: legacy_sources.stat.exists
+
+    - name: Disable the legacy sources.list
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list
+        content: "# Managed by k8s-airgap; see /etc/apt/sources.list.d/debian-airgap.sources\n"
+        mode: '0644'
+
+    - name: Configure the internal Debian repository
+      ansible.builtin.template:
+        src: ../templates/debian-airgap.sources.j2
+        dest: /etc/apt/sources.list.d/debian-airgap.sources
+        mode: '0644'
+
+    - name: Refresh package metadata from the internal repository
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: Install Kubernetes node prerequisite packages
+      ansible.builtin.apt:
+        name: "{{ node_packages }}"
+        state: present
+        install_recommends: false

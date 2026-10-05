@@ -1,10 +1,16 @@
 # Kubernetes air-gap bundle for Debian 12
 
-This repository builds a versioned, transferable Kubernetes installation bundle for `amd64` Debian 12 nodes. It uses `kubeadm`, `containerd`, Flannel VXLAN and a local-path provisioner. Container images are mirrored into an existing Harbor after transfer into the isolated network.
+This repository builds a versioned, transferable Kubernetes installation
+bundle for `amd64` Debian 12 nodes. The target installer is Kubespray with
+containerd and Flannel VXLAN. The bundle contains Kubespray and its offline
+Python dependencies, a Dockerized minimal Debian repository and the official
+Harbor offline installer; cluster images are imported into Harbor after
+transfer into the isolated network. The older direct-kubeadm playbooks remain
+available only while the Kubespray migration is completed.
 
 The first target profile is deliberately conservative:
 
-- Kubernetes installed with kubeadm;
+- Kubernetes installed with Kubespray;
 - containerd with systemd cgroups;
 - Flannel, pod network `10.244.0.0/16`;
 - local-path-provisioner for initial local volumes;
@@ -13,9 +19,18 @@ The first target profile is deliberately conservative:
 - kube-prometheus-stack and Thanos prepared for an external MinIO endpoint;
   Grafana values prepared for an external PostgreSQL database.
 
+For a memory-constrained local environment, Harbor and the Debian repository
+run as Docker Compose services on the physical host while Kubernetes runs on
+three Debian 12 VMs. See [docs/LAB-TOPOLOGY.md](docs/LAB-TOPOLOGY.md) for the
+15 GiB resource budget, host networking and startup procedure.
+
 The bundle builder downloads the core binaries, Kubernetes/Flannel/local-path
-images, and the pinned MetalLB and Traefik charts with their image closure.
-`charts/charts.lock` also pins the separate monitoring stage; its chart
+images, the Harbor offline installer, a Docker image containing the Debian
+package closure, and the pinned MetalLB and Traefik charts with their image closure.
+Transferable repositories are grouped under `repositories/`: Debian packages
+under `apt`, images and Helm artifacts under `registry`, Python wheels under
+`python`, and offline Git payloads under `git`.
+`deploy/platform/charts/charts.lock` also pins the separate monitoring stage; its chart
 download, rendering and complete image closure remain to be implemented because
 those charts must be selected and tested together.
 
@@ -139,22 +154,46 @@ See [INSTALL.md](INSTALL.md) for the complete offline installation guide,
 including Harbor preparation, node prerequisites, Ansible inventory, cluster
 bootstrap and verification.
 
-1. Run the `Build offline bundle` workflow manually.
-2. Transfer the `.tar.zst` release asset and its `.sha256` file into the isolated network.
-3. Verify the release asset, unpack it, then verify its contents with the bundled `scripts/verify-bundle.sh`.
+1. Run the `Build offline bundle` workflow manually and provide a release version.
+2. Download all semantic assets from that GitHub Release.
+3. Transfer the release directory into the isolated network and run `bash unpack-release.sh . ../k8s-airgap`.
 4. Import images into Harbor.
-5. Adjust `ansible/inventory/hosts.example.yml`, copy it to `hosts.yml` and run the playbooks.
+5. Adjust `deploy/kubespray/inventory/lab/hosts.yaml` and run Kubespray.
 
 No credentials, CA private keys, kubeconfigs, MinIO keys or Harbor passwords belong in this repository or in its releases.
 
 ## Repository layout
 
 ```text
-config/                 pinned component versions and cluster defaults
-scripts/                bundle build, verification and Harbor import helpers
-ansible/                node preparation and cluster bootstrap playbooks
-charts/                 Helm chart lock file and offline values
-manifests/              Flannel, storage and monitoring configuration
-docs/                   installation prerequisites and external-service guidance
-.github/workflows/      CI, build artifact and release workflows
+config/                 pinned versions and repository mappings
+deploy/scripts/          release assembly and verification
+deploy/infrastructure/  APT repository and Harbor bootstrap
+deploy/nodes/ansible/    Debian 12 node preparation
+deploy/kubespray/        lab inventory and offline overrides
+deploy/platform/         charts, values and Kubernetes manifests
+docs/                    installation and operations documentation
+.github/workflows/       GitHub Actions entry points
+.github/scripts/         connected-side build and Release publication
+```
+
+The builder publishes several semantic release assets instead of one monolithic
+archive. `bundle-manifest.yaml` lists them and `SHA256SUMS` covers every release
+asset. After assembly, the resulting directory keeps transferable artifacts in
+this hierarchy:
+
+```text
+repositories/
+├── apt/
+├── files/
+│   ├── content/
+│   └── files.list
+├── registry/
+│   ├── images/
+│   │   ├── archives/
+│   │   └── images.txt
+│   ├── charts/
+│   │   ├── archives/
+│   │   └── charts.lock
+│   └── mapping.yaml
+└── python/
 ```

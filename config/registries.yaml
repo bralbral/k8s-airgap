@@ -1,0 +1,8 @@
+---
+# Source registries are mirrored into public Harbor projects. Workloads keep
+# using their original image references; containerd performs the redirect.
+registries:
+  docker.io: docker
+  ghcr.io: ghcr
+  quay.io: quay
+  registry.k8s.io: k8s

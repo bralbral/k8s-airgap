@@ -1,0 +1,20 @@
+---
+services:
+  apt-repo:
+    build:
+      context: ../..
+      dockerfile: deploy/infrastructure/apt/Dockerfile
+      args:
+        DEBIAN_MIRROR: ${DEBIAN_MIRROR:-http://deb.debian.org/debian}
+        DEBIAN_SECURITY_MIRROR: ${DEBIAN_SECURITY_MIRROR:-http://security.debian.org/debian-security}
+    image: k8s-airgap/apt-repo:debian12-amd64
+    container_name: k8s-airgap-apt
+    restart: unless-stopped
+    ports:
+      - "${APT_REPO_BIND_ADDRESS:-0.0.0.0}:${APT_REPO_PORT:-8081}:80"
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5

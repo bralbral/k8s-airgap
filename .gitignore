@@ -1,8 +1,9 @@
-bundle/
 dist/
-ansible/inventory/hosts.yml
+deploy/nodes/ansible/inventory/hosts.yml
 *.retry
 *.tar
 *.tar.zst
 *.part-*
 .idea/
+deploy/infrastructure/.env
+deploy/infrastructure/runtime/

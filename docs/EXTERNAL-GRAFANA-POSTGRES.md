@@ -30,9 +30,9 @@ values file:
 
 ```bash
 helm upgrade --install monitoring \
-  charts/kube-prometheus-stack-75.15.0.tgz \
+  repositories/registry/charts/archives/kube-prometheus-stack-75.15.0.tgz \
   --namespace monitoring --create-namespace \
-  --values charts/values/kube-prometheus-stack.yaml
+  --values repositories/registry/charts/values/kube-prometheus-stack.yaml
 ```
 
 For verified PostgreSQL TLS, mount the CA using the Grafana chart's

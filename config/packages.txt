@@ -1,10 +1,17 @@
 # A minimal Debian 12 base system is a prerequisite.
 ca-certificates
 curl
+chrony
 conntrack
 socat
 ipset
 iptables
+nftables
+iproute2
 ethtool
 nfs-common
+python3
+python3-pip
+python3-venv
+rsync
 util-linux
