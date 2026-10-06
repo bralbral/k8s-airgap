@@ -1,0 +1,14 @@
+---
+replicas: 1
+
+# kubeadm kubelets use self-signed serving certificates unless a separate CSR
+# approval flow is configured. This is acceptable for the isolated lab and can
+# be removed after trusted kubelet serving certificates are introduced.
+args:
+  - --kubelet-insecure-tls
+
+metrics:
+  enabled: false
+
+serviceMonitor:
+  enabled: false

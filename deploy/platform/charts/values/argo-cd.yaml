@@ -1,0 +1,22 @@
+---
+# Traefik terminates/exposes HTTP inside the trusted private network. TLS can be
+# added later through cert-manager without changing the Argo CD installation.
+configs:
+  params:
+    server.insecure: true
+
+# The initial installation uses Argo CD's local admin account. Enable Dex only
+# after an internal OIDC provider is selected.
+dex:
+  enabled: false
+
+notifications:
+  enabled: false
+
+redis:
+  image:
+    repository: docker.io/library/redis
+
+server:
+  service:
+    type: ClusterIP

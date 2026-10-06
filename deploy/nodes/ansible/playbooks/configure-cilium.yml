@@ -1,0 +1,14 @@
+---
+- name: Finalise Cilium after every cluster node has joined
+  hosts: control_plane[0]
+  become: true
+  tasks:
+    - name: Configure the requested number of Cilium operator replicas
+      ansible.builtin.command: >-
+        {{ bundle_root }}/tools/helm upgrade --install cilium
+        {{ bundle_root }}/repositories/registry/charts/archives/cilium-{{ cilium_chart_version }}.tgz
+        --kubeconfig /etc/kubernetes/admin.conf
+        --namespace kube-system --wait --timeout 10m
+        --values {{ bundle_root }}/repositories/registry/charts/values/cilium.yaml
+        --set operator.replicas={{ cilium_operator_replicas }}
+      changed_when: true

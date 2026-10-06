@@ -1,0 +1,35 @@
+---
+# Keep the first Cilium stage deliberately small. NetworkPolicy is available,
+# while observability and kube-proxy replacement can be enabled later.
+kubeProxyReplacement: false
+routingMode: tunnel
+tunnelProtocol: vxlan
+
+ipam:
+  mode: kubernetes
+
+# MetalLB owns Service LoadBalancer address allocation in this cluster.
+enableLBIPAM: false
+defaultLBServiceIPAM: none
+
+image:
+  useDigest: false
+
+operator:
+  replicas: 1
+  image:
+    useDigest: false
+  prometheus:
+    enabled: false
+
+hubble:
+  enabled: false
+
+prometheus:
+  enabled: false
+  serviceMonitor:
+    enabled: false
+
+l7Proxy: false
+envoy:
+  enabled: false

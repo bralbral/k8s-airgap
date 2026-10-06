@@ -1,0 +1,66 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ cert_manager_vault_service_account }}
+  namespace: cert-manager
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ cert_manager_vault_service_account }}-token-request
+  namespace: cert-manager
+rules:
+  - apiGroups: ['']
+    resources: ['serviceaccounts/token']
+    resourceNames: [{{ cert_manager_vault_service_account | quote }}]
+    verbs: ['create']
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ cert_manager_vault_service_account }}-token-request
+  namespace: cert-manager
+subjects:
+  - kind: ServiceAccount
+    name: cert-manager
+    namespace: cert-manager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ cert_manager_vault_service_account }}-token-request
+---
+# Vault reuses this short-lived client JWT when calling the Kubernetes
+# TokenReview API, so no long-lived token_reviewer_jwt has to be stored.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ cert_manager_vault_service_account }}-token-review
+subjects:
+  - kind: ServiceAccount
+    name: {{ cert_manager_vault_service_account }}
+    namespace: cert-manager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ cert_manager_vault_cluster_issuer }}
+spec:
+  vault:
+    server: {{ cert_manager_vault_server | quote }}
+    path: {{ cert_manager_vault_pki_path | quote }}
+{% if cert_manager_vault_ca_bundle | length > 0 %}
+    caBundle: {{ cert_manager_vault_ca_bundle | b64encode | quote }}
+{% endif %}
+    auth:
+      kubernetes:
+        role: {{ cert_manager_vault_role | quote }}
+        mountPath: {{ cert_manager_vault_auth_mount | quote }}
+        serviceAccountRef:
+          name: {{ cert_manager_vault_service_account }}
+          audiences:
+            - {{ cert_manager_vault_kubernetes_api_audience | quote }}

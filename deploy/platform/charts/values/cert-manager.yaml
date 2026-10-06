@@ -1,0 +1,10 @@
+---
+crds:
+  enabled: true
+  keep: true
+
+# Prometheus integration will be enabled together with the monitoring layer.
+prometheus:
+  enabled: false
+  servicemonitor:
+    enabled: false

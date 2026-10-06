@@ -1,0 +1,92 @@
+---
+- name: Install the base Kubernetes platform add-ons
+  hosts: control_plane[0]
+  become: true
+  tasks:
+    - name: Install Metrics Server
+      ansible.builtin.command: >-
+        {{ bundle_root }}/tools/helm upgrade --install metrics-server
+        {{ bundle_root }}/repositories/registry/charts/archives/metrics-server-{{ metrics_server_chart_version }}.tgz
+        --kubeconfig /etc/kubernetes/admin.conf
+        --namespace kube-system --wait --timeout 5m
+        --values {{ bundle_root }}/repositories/registry/charts/values/metrics-server.yaml
+      changed_when: true
+
+    - name: Wait for resource metrics API
+      ansible.builtin.command: >-
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf wait
+        --for=condition=Available apiservice/v1beta1.metrics.k8s.io
+        --timeout=5m
+      changed_when: false
+
+    - name: Install cert-manager and its CRDs
+      ansible.builtin.command: >-
+        {{ bundle_root }}/tools/helm upgrade --install cert-manager
+        {{ bundle_root }}/repositories/registry/charts/archives/cert-manager-{{ cert_manager_chart_version }}.tgz
+        --kubeconfig /etc/kubernetes/admin.conf
+        --namespace cert-manager --create-namespace --wait --timeout 10m
+        --values {{ bundle_root }}/repositories/registry/charts/values/cert-manager.yaml
+      changed_when: true
+
+    - name: Validate external Vault issuer settings
+      ansible.builtin.assert:
+        that:
+          - cert_manager_vault_server is match('^https?://')
+          - >-
+            cert_manager_vault_server is match('^https://') or
+            cert_manager_vault_allow_insecure_http | bool
+          - cert_manager_vault_pki_path | length > 0
+          - cert_manager_vault_auth_mount is match('^/v1/auth/')
+          - cert_manager_vault_role | length > 0
+          - cert_manager_vault_cluster_issuer | length > 0
+          - cert_manager_vault_kubernetes_api_audience | length > 0
+        fail_msg: >-
+          Invalid external Vault configuration. Plain HTTP requires the
+          explicit cert_manager_vault_allow_insecure_http=true opt-in.
+      when: cert_manager_vault_enabled | bool
+
+    - name: Render external Vault ClusterIssuer resources
+      ansible.builtin.template:
+        src: ../templates/cert-manager-vault-clusterissuer.yaml.j2
+        dest: /root/cert-manager-vault-clusterissuer.yaml
+        mode: '0600'
+      when: cert_manager_vault_enabled | bool
+
+    - name: Configure cert-manager to use external Vault PKI
+      ansible.builtin.command: >-
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf apply
+        -f /root/cert-manager-vault-clusterissuer.yaml
+      changed_when: true
+      when: cert_manager_vault_enabled | bool
+
+    - name: Wait for external Vault ClusterIssuer
+      ansible.builtin.command: >-
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf wait
+        --for=condition=Ready
+        clusterissuer/{{ cert_manager_vault_cluster_issuer }}
+        --timeout=3m
+      changed_when: false
+      when: cert_manager_vault_enabled | bool
+
+    - name: Install Argo CD
+      ansible.builtin.command: >-
+        {{ bundle_root }}/tools/helm upgrade --install argocd
+        {{ bundle_root }}/repositories/registry/charts/archives/argo-cd-{{ argocd_chart_version }}.tgz
+        --kubeconfig /etc/kubernetes/admin.conf
+        --namespace argocd --create-namespace --wait --timeout 10m
+        --values {{ bundle_root }}/repositories/registry/charts/values/argo-cd.yaml
+      changed_when: true
+
+    - name: Render Argo CD HTTPRoute
+      ansible.builtin.template:
+        src: ../templates/argocd-http-route.yaml.j2
+        dest: /root/argocd-http-route.yaml
+        mode: '0600'
+      when: argocd_create_http_route | bool
+
+    - name: Expose Argo CD through the public Traefik Gateway
+      ansible.builtin.command: >-
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf apply
+        -f /root/argocd-http-route.yaml
+      changed_when: true
+      when: argocd_create_http_route | bool
