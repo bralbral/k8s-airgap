@@ -60,10 +60,7 @@ install -d -o vault -g vault -m 0700 /var/lib/vault
 
 vault_config="$(mktemp)"
 vault_service="$(mktemp)"
-cleanup() {
-  rm -f -- "${vault_config}" "${vault_service}"
-}
-trap cleanup EXIT
+trap 'rm -f -- "${vault_config}" "${vault_service}"' EXIT
 
 cat > "${vault_config}" <<EOF
 ui = true
