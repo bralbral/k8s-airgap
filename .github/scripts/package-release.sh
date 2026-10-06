@@ -79,6 +79,7 @@ create_image_assets() {
 create_image_assets kubernetes
 create_image_assets networking
 create_image_assets storage
+create_image_assets platform
 create_image_assets extra
 
 cp "${staging_dir}/manifest.yaml" "${release_dir}/bundle-manifest.yaml"

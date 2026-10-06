@@ -35,6 +35,28 @@ containerd_registry_mirrors:
 metallb_ip_address_pool: 10.10.0.240-10.10.0.250
 metallb_version: 0.16.1
 traefik_chart_version: 40.3.0
+cilium_chart_version: 1.20.2
+cilium_operator_replicas: 1
+metrics_server_chart_version: 3.14.0
+cert_manager_chart_version: v1.21.2
+# An external Vault can be used as the cluster-wide cert-manager PKI issuer.
+# The Vault server itself is never installed inside Kubernetes by this repo.
+cert_manager_vault_enabled: true
+cert_manager_vault_server: http://vault.internal:8200
+# Vault is intentionally served over HTTP in this isolated-network profile.
+cert_manager_vault_allow_insecure_http: true
+cert_manager_vault_pki_path: pki_int/sign/kubernetes
+cert_manager_vault_auth_mount: /v1/auth/kubernetes-airgap
+cert_manager_vault_role: cert-manager
+cert_manager_vault_cluster_issuer: vault-pki
+cert_manager_vault_service_account: vault-issuer
+cert_manager_vault_kubernetes_api_audience: https://kubernetes.default.svc.cluster.local
+# PEM-encoded CA for a private HTTPS Vault listener. Leave empty for HTTP or
+# when Vault's server certificate is already trusted by cert-manager.
+cert_manager_vault_ca_bundle: ''
+argocd_chart_version: 10.9.6
+argocd_hostname: argocd.internal
+argocd_create_http_route: true
 nfs_csi_enabled: true
 nfs_csi_chart_version: 4.13.4
 # Installing the driver does not require an NFS server. A StorageClass is

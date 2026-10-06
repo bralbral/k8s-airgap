@@ -13,10 +13,22 @@ required_files=(
   repositories/registry/mapping.yaml
   repositories/registry/images/images.txt
   repositories/registry/images/groups/storage.txt
+  repositories/registry/images/groups/platform.txt
   repositories/registry/charts/charts.lock
-  deploy/nodes/ansible/templates/flannel.yaml.j2
+  repositories/registry/charts/values/cilium.yaml
+  repositories/registry/charts/values/metrics-server.yaml
+  repositories/registry/charts/values/cert-manager.yaml
+  repositories/registry/charts/values/argo-cd.yaml
   deploy/nodes/ansible/templates/local-path-provisioner.yaml.j2
+  deploy/nodes/ansible/templates/cert-manager-vault-clusterissuer.yaml.j2
+  deploy/nodes/ansible/playbooks/configure-cilium.yml
+  deploy/nodes/ansible/playbooks/install-platform.yml
   deploy/nodes/ansible/playbooks/join-control-planes.yml
+  deploy/infrastructure/scripts/install-vault.sh
+  deploy/infrastructure/scripts/initialize-vault.sh
+  deploy/infrastructure/scripts/unseal-vault.sh
+  deploy/infrastructure/scripts/backup-vault.sh
+  deploy/infrastructure/scripts/configure-vault-kubernetes.sh
   deploy/platform/manifests/upstream/gateway-api-standard.yaml
   tools/cni-plugins.tgz
   tools/containerd.tar.gz
@@ -35,7 +47,11 @@ for required_pattern in \
   'deploy/infrastructure/harbor/harbor-offline-installer-*.tgz' \
   'repositories/registry/charts/archives/metallb-*.tgz' \
   'repositories/registry/charts/archives/traefik-*.tgz' \
-  'repositories/registry/charts/archives/csi-driver-nfs-*.tgz'; do
+  'repositories/registry/charts/archives/cilium-*.tgz' \
+  'repositories/registry/charts/archives/csi-driver-nfs-*.tgz' \
+  'repositories/registry/charts/archives/metrics-server-*.tgz' \
+  'repositories/registry/charts/archives/cert-manager-*.tgz' \
+  'repositories/registry/charts/archives/argo-cd-*.tgz'; do
   compgen -G "${required_pattern}" >/dev/null || {
     echo "Required bundle artifact is missing: ${required_pattern}" >&2
     exit 1
@@ -51,6 +67,7 @@ required_executables=(
   tools/kubectl
   tools/kubelet
   tools/runc
+  tools/vault
 )
 
 for required_executable in "${required_executables[@]}"; do

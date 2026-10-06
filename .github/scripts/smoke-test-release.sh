@@ -21,6 +21,7 @@ mkdir -p \
   "${staging_dir}/repositories/apt" \
   "${staging_dir}/repositories/apt/repository/dists/bookworm" \
   "${staging_dir}/repositories/registry/charts/archives" \
+  "${staging_dir}/repositories/registry/charts/values" \
   "${staging_dir}/repositories/registry/images/archives" \
   "${staging_dir}/repositories/registry/images/groups" \
   "${staging_dir}/tools/windows-amd64"
@@ -41,8 +42,9 @@ cp -R "${repo_root}/deploy/infrastructure/scripts/." "${staging_dir}/deploy/infr
 printf '%s\n' 'placeholder' > "${staging_dir}/deploy/infrastructure/harbor/harbor-offline-installer-smoke.tgz"
 cp -R "${repo_root}/deploy/nodes/." "${staging_dir}/deploy/nodes/"
 cp -R "${repo_root}/deploy/platform/manifests/." "${staging_dir}/deploy/platform/manifests/"
+cp -R "${repo_root}/deploy/platform/charts/values/." \
+  "${staging_dir}/repositories/registry/charts/values/"
 cp -R "${repo_root}/deploy/scripts/." "${staging_dir}/deploy/scripts/"
-printf '%s\n' 'placeholder' > "${staging_dir}/deploy/nodes/ansible/templates/flannel.yaml.j2"
 printf '%s\n' 'placeholder' > "${staging_dir}/deploy/nodes/ansible/templates/local-path-provisioner.yaml.j2"
 printf '%s\n' 'placeholder' > "${staging_dir}/deploy/platform/manifests/upstream/gateway-api-standard.yaml"
 
@@ -58,15 +60,20 @@ printf '%s\n' '---' 'registries:' '  registry.k8s.io: k8s' '  quay.io: quay' \
 printf '%s\n' 'placeholder' > "${staging_dir}/repositories/registry/charts/archives/networking.tgz"
 printf '%s\n' 'placeholder' > "${staging_dir}/repositories/registry/charts/archives/metallb-smoke.tgz"
 printf '%s\n' 'placeholder' > "${staging_dir}/repositories/registry/charts/archives/traefik-smoke.tgz"
+printf '%s\n' 'placeholder' > "${staging_dir}/repositories/registry/charts/archives/cilium-smoke.tgz"
 printf '%s\n' 'placeholder' > "${staging_dir}/repositories/registry/charts/archives/csi-driver-nfs-smoke.tgz"
+printf '%s\n' 'placeholder' > "${staging_dir}/repositories/registry/charts/archives/metrics-server-smoke.tgz"
+printf '%s\n' 'placeholder' > "${staging_dir}/repositories/registry/charts/archives/cert-manager-smoke.tgz"
+printf '%s\n' 'placeholder' > "${staging_dir}/repositories/registry/charts/archives/argo-cd-smoke.tgz"
 printf '%s\n' 'placeholder' > "${staging_dir}/repositories/registry/charts/charts.lock"
 
 kubernetes_image='registry.k8s.io/pause:3.10.2'
 kubernetes_image_two='registry.k8s.io/pause:3.10.3'
 networking_image='quay.io/example/network:v1'
 storage_image='registry.k8s.io/sig-storage/nfsplugin:v4.13.4'
+platform_image='registry.k8s.io/metrics-server/metrics-server:v0.9.0'
 printf '%s\n' "${kubernetes_image}" "${kubernetes_image_two}" "${networking_image}" \
-  "${storage_image}" \
+  "${storage_image}" "${platform_image}" \
   > "${staging_dir}/repositories/registry/images/images.txt"
 printf '%s\n' "${kubernetes_image}" "${kubernetes_image_two}" \
   > "${staging_dir}/repositories/registry/images/groups/kubernetes.txt"
@@ -74,6 +81,8 @@ printf '%s\n' "${networking_image}" \
   > "${staging_dir}/repositories/registry/images/groups/networking.txt"
 printf '%s\n' "${storage_image}" \
   > "${staging_dir}/repositories/registry/images/groups/storage.txt"
+printf '%s\n' "${platform_image}" \
+  > "${staging_dir}/repositories/registry/images/groups/platform.txt"
 : > "${staging_dir}/repositories/registry/images/groups/extra.txt"
 printf '%s\n' 'placeholder' \
   > "${staging_dir}/repositories/registry/images/archives/registry.k8s.io_pause_3.10.2.tar"
@@ -83,8 +92,10 @@ printf '%s\n' 'placeholder' \
   > "${staging_dir}/repositories/registry/images/archives/quay.io_example_network_v1.tar"
 printf '%s\n' 'placeholder' \
   > "${staging_dir}/repositories/registry/images/archives/registry.k8s.io_sig-storage_nfsplugin_v4.13.4.tar"
+printf '%s\n' 'placeholder' \
+  > "${staging_dir}/repositories/registry/images/archives/registry.k8s.io_metrics-server_metrics-server_v0.9.0.tar"
 
-for tool in kubeadm kubectl kubelet crictl helm crane docker-compose; do
+for tool in kubeadm kubectl kubelet crictl helm crane docker-compose vault; do
   printf '%s\n' 'placeholder' > "${staging_dir}/tools/${tool}"
   chmod 0755 "${staging_dir}/tools/${tool}"
 done
@@ -117,6 +128,7 @@ required_assets=(
   images-kubernetes-002.tar.zst
   images-networking-001.tar.zst
   images-storage-001.tar.zst
+  images-platform-001.tar.zst
   charts-platform.tar.zst
   bundle-manifest.yaml
   SHA256SUMS

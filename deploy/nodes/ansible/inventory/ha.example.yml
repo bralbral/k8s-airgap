@@ -27,6 +27,15 @@ all:
     metallb_ip_address_pool: 10.10.0.240-10.10.0.250
     metallb_version: 0.16.1
     traefik_chart_version: 40.3.0
+    cilium_chart_version: 1.20.2
+    cilium_operator_replicas: 2
+    metrics_server_chart_version: 3.14.0
+    cert_manager_chart_version: v1.21.2
+    cert_manager_vault_enabled: true
+    cert_manager_vault_server: http://10.10.0.5:8200
+    cert_manager_vault_allow_insecure_http: true
+    argocd_chart_version: 10.9.6
+    argocd_hostname: argocd.internal
     nfs_csi_chart_version: 4.13.4
     nfs_csi_create_storage_class: false
     nfs_csi_server: ''

@@ -1,9 +1,12 @@
 ---
-# Grafana's state (users, dashboards, alert rules and settings) is stored in
-# the external PostgreSQL service. Metrics remain in Prometheus/Thanos.
-# This values file is reserved for the future monitoring stage and is not
-# installed by the current release.
+# Reserved for the future Prometheus Agent + Thanos monitoring layer. Grafana
+# and Grafana Alerting are external, so neither Grafana nor Alertmanager belongs
+# in this cluster.
 grafana:
-  envFromSecret: grafana-postgresql
-  persistence:
-    enabled: false
+  enabled: false
+
+alertmanager:
+  enabled: false
+
+prometheus:
+  enabled: false

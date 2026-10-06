@@ -35,14 +35,14 @@
       args:
         creates: /etc/kubernetes/admin.conf
 
-    - name: Render offline Flannel manifest
-      ansible.builtin.template:
-        src: ../templates/flannel.yaml.j2
-        dest: /root/flannel.yaml
-        mode: '0600'
-
-    - name: Install Flannel
-      ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f /root/flannel.yaml
+    - name: Install Cilium CNI
+      ansible.builtin.command: >-
+        {{ bundle_root }}/tools/helm upgrade --install cilium
+        {{ bundle_root }}/repositories/registry/charts/archives/cilium-{{ cilium_chart_version }}.tgz
+        --kubeconfig /etc/kubernetes/admin.conf
+        --namespace kube-system --wait --timeout 10m
+        --values {{ bundle_root }}/repositories/registry/charts/values/cilium.yaml
+        --set operator.replicas=1
       changed_when: true
 
     - name: Render offline local-path provisioner manifest

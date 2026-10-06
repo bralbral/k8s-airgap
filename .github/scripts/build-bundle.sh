@@ -16,6 +16,7 @@ image_groups_dir="${images_repository_dir}/groups"
 kubernetes_images_list="${image_groups_dir}/kubernetes.txt"
 networking_images_list="${image_groups_dir}/networking.txt"
 storage_images_list="${image_groups_dir}/storage.txt"
+platform_images_list="${image_groups_dir}/platform.txt"
 extra_images_list="${image_groups_dir}/extra.txt"
 charts_repository_dir="${registry_repository_dir}/charts"
 charts_dir="${charts_repository_dir}/archives"
@@ -49,6 +50,11 @@ mkdir -p \
   "${infrastructure_dir}/apt" \
   "${infrastructure_dir}/harbor" \
   "${out_dir}/config"
+# Prevent obsolete Flannel artifacts from surviving when a local build reuses
+# an existing output directory created by an older revision.
+rm -f \
+  "${platform_dir}/manifests/upstream/flannel.yaml" \
+  "${nodes_dir}/ansible/templates/flannel.yaml.j2"
 cp "${repo_root}/config/versions.env" "${out_dir}/manifest.env"
 cp "${repo_root}/config/cluster-defaults.yaml" "${out_dir}/cluster-defaults.yaml"
 cp "${repo_root}/config/registries.yaml" "${registry_repository_dir}/mapping.yaml"
@@ -99,6 +105,26 @@ if [[ ! -x "${tools_dir}/k9s" ]]; then
   fetch "https://github.com/derailed/k9s/releases/download/${K9S_VERSION}/k9s_Linux_amd64.tar.gz" "${tools_dir}/k9s.tar.gz"
   tar -xzf "${tools_dir}/k9s.tar.gz" -C "${tools_dir}" k9s
   rm "${tools_dir}/k9s.tar.gz"
+fi
+
+if [[ ! -x "${tools_dir}/vault" ]]; then
+  vault_archive="vault_${VAULT_VERSION}_linux_amd64.zip"
+  fetch \
+    "https://releases.hashicorp.com/vault/${VAULT_VERSION}/${vault_archive}" \
+    "${tools_dir}/vault.zip"
+  fetch \
+    "https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_SHA256SUMS" \
+    "${tools_dir}/vault.SHA256SUMS"
+  vault_expected_sha="$(awk -v archive="${vault_archive}" '$2 == archive { print $1 }' \
+    "${tools_dir}/vault.SHA256SUMS")"
+  vault_actual_sha="$(sha256sum "${tools_dir}/vault.zip" | awk '{ print $1 }')"
+  [[ -n "${vault_expected_sha}" && "${vault_actual_sha}" == "${vault_expected_sha}" ]] || {
+    echo "Vault archive checksum verification failed." >&2
+    exit 1
+  }
+  unzip -q "${tools_dir}/vault.zip" vault -d "${tools_dir}"
+  rm "${tools_dir}/vault.zip" "${tools_dir}/vault.SHA256SUMS"
+  chmod 0755 "${tools_dir}/vault"
 fi
 
 if [[ ! -f "${tools_dir}/windows-amd64/kubectl.exe" ]]; then
@@ -160,19 +186,20 @@ pull_chart() {
 
 pull_chart metallb https://metallb.github.io/metallb "${METALLB_VERSION}"
 pull_chart traefik https://traefik.github.io/charts "${TRAEFIK_CHART_VERSION}"
+pull_chart cilium https://helm.cilium.io "${CILIUM_CHART_VERSION}"
 pull_chart csi-driver-nfs https://kubernetes-csi.github.io/csi-driver-nfs \
   "${NFS_CSI_CHART_VERSION}"
+pull_chart metrics-server https://kubernetes-sigs.github.io/metrics-server \
+  "${METRICS_SERVER_CHART_VERSION}"
+pull_chart cert-manager https://charts.jetstack.io \
+  "${CERT_MANAGER_CHART_VERSION}"
+pull_chart argo-cd https://argoproj.github.io/argo-helm \
+  "${ARGO_CD_CHART_VERSION}"
 
-flannel_manifest="${platform_dir}/manifests/upstream/flannel.yaml"
 local_path_manifest="${platform_dir}/manifests/upstream/local-path-provisioner.yaml"
 gateway_api_manifest="${platform_dir}/manifests/upstream/gateway-api-standard.yaml"
-fetch "https://github.com/flannel-io/flannel/releases/download/${FLANNEL_VERSION}/kube-flannel.yml" "${flannel_manifest}"
 fetch "https://raw.githubusercontent.com/rancher/local-path-provisioner/${LOCAL_PATH_PROVISIONER_VERSION}/deploy/local-path-storage.yaml" "${local_path_manifest}"
 fetch "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml" "${gateway_api_manifest}"
-
-sed \
-  -e 's|"10.244.0.0/16"|"{{ pod_subnet }}"|g' \
-  "${flannel_manifest}" > "${nodes_dir}/ansible/templates/flannel.yaml.j2"
 
 sed \
   -e "s|docker.io/library/busybox|docker.io/library/busybox:${BUSYBOX_VERSION}|g" \
@@ -181,17 +208,25 @@ sed \
 
 "${tools_dir}/kubeadm" config images list --kubernetes-version "${KUBERNETES_VERSION}" > "${kubernetes_images_list}"
 {
-  printf 'ghcr.io/flannel-io/flannel:%s\n' "${FLANNEL_VERSION}"
-  printf 'ghcr.io/flannel-io/flannel-cni-plugin:%s\n' "${FLANNEL_CNI_PLUGIN_VERSION}"
   printf 'docker.io/rancher/local-path-provisioner:%s\n' "${LOCAL_PATH_PROVISIONER_VERSION}"
   printf 'docker.io/library/busybox:%s\n' "${BUSYBOX_VERSION}"
 } >> "${kubernetes_images_list}"
 sort -u -o "${kubernetes_images_list}" "${kubernetes_images_list}"
 
+: > "${networking_images_list}"
+"${tools_dir}/helm" template offline \
+  "${charts_dir}/cilium-${CILIUM_CHART_VERSION}.tgz" \
+  --namespace kube-system --include-crds \
+  --kube-version "${KUBERNETES_VERSION#v}" \
+  --values "${charts_repository_dir}/values/cilium.yaml" |
+  awk '/^[[:space:]]*image:[[:space:]]*/ { image=$2; gsub(/["'"'"']/, "", image); print image }' \
+  >> "${networking_images_list}"
+
 for chart in \
   "${charts_dir}/metallb-${METALLB_VERSION}.tgz" \
   "${charts_dir}/traefik-${TRAEFIK_CHART_VERSION}.tgz"; do
-  "${tools_dir}/helm" template offline "${chart}" --include-crds |
+  "${tools_dir}/helm" template offline "${chart}" --include-crds \
+    --kube-version "${KUBERNETES_VERSION#v}" |
     awk '/^[[:space:]]*image:[[:space:]]*/ { image=$2; gsub(/["'"'"'"'"'"']/, "", image); print image }' \
     >> "${networking_images_list}"
 done
@@ -212,15 +247,40 @@ comm -23 "${storage_images_list}" "${image_groups_dir}/assigned.txt" \
   > "${storage_images_list}.unique"
 mv "${storage_images_list}.unique" "${storage_images_list}"
 
+: > "${platform_images_list}"
+for chart_and_values in \
+  "metrics-server-${METRICS_SERVER_CHART_VERSION}.tgz metrics-server.yaml kube-system" \
+  "cert-manager-${CERT_MANAGER_CHART_VERSION}.tgz cert-manager.yaml cert-manager" \
+  "argo-cd-${ARGO_CD_CHART_VERSION}.tgz argo-cd.yaml argocd"; do
+  read -r chart values namespace <<< "${chart_and_values}"
+  "${tools_dir}/helm" template offline "${charts_dir}/${chart}" \
+    --namespace "${namespace}" --include-crds \
+    --kube-version "${KUBERNETES_VERSION#v}" \
+    --values "${charts_repository_dir}/values/${values}" |
+    awk '/^[[:space:]]*image:[[:space:]]*/ { image=$2; gsub(/["'"'"']/, "", image); print image }' \
+    >> "${platform_images_list}"
+done
+# cert-manager creates ACME HTTP01 solver Pods dynamically, so this image is a
+# command argument in the rendered controller rather than a Pod image field.
+printf 'quay.io/jetstack/cert-manager-acmesolver:%s\n' \
+  "${CERT_MANAGER_CHART_VERSION}" >> "${platform_images_list}"
+sort -u -o "${platform_images_list}" "${platform_images_list}"
+cat "${kubernetes_images_list}" "${networking_images_list}" \
+  "${storage_images_list}" | sort -u > "${image_groups_dir}/assigned.txt"
+comm -23 "${platform_images_list}" "${image_groups_dir}/assigned.txt" \
+  > "${platform_images_list}.unique"
+mv "${platform_images_list}.unique" "${platform_images_list}"
+
 grep -Ev '^#|^$' "${repo_root}/config/extra-images.txt" | sort -u > "${extra_images_list}" || true
-cat "${kubernetes_images_list}" "${networking_images_list}" "${storage_images_list}" |
+cat "${kubernetes_images_list}" "${networking_images_list}" \
+  "${storage_images_list}" "${platform_images_list}" |
   sort -u > "${image_groups_dir}/assigned.txt"
 comm -23 "${extra_images_list}" "${image_groups_dir}/assigned.txt" > "${extra_images_list}.unique"
 mv "${extra_images_list}.unique" "${extra_images_list}"
 rm "${image_groups_dir}/assigned.txt"
 
 cat "${kubernetes_images_list}" "${networking_images_list}" \
-  "${storage_images_list}" "${extra_images_list}" |
+  "${storage_images_list}" "${platform_images_list}" "${extra_images_list}" |
   sort -u > "${images_list}"
 
 if grep -Ev '^(docker\.io|ghcr\.io|quay\.io|registry\.k8s\.io)/[^[:space:]]+:[^[:space:]]+$' "${images_list}"; then
@@ -258,6 +318,7 @@ done < "${images_list}"
   printf '%s\n' '  - images-kubernetes-*.tar.zst'
   printf '%s\n' '  - images-networking-*.tar.zst'
   printf '%s\n' '  - images-storage-*.tar.zst'
+  printf '%s\n' '  - images-platform-*.tar.zst'
   printf '%s\n' 'optional_release_asset_patterns:'
   printf '%s\n' '  - images-extra-*.tar.zst'
 } > "${out_dir}/manifest.yaml"

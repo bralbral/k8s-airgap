@@ -12,16 +12,18 @@
 - готовый лабораторный профиль: один control plane и два worker-узла;
 - Debian 12, `amd64`;
 - containerd с `systemd` cgroups;
-- Flannel VXLAN, Pod CIDR `10.244.0.0/16`;
+- Cilium в VXLAN tunnel-режиме, Pod CIDR `10.244.0.0/16`;
 - local-path-provisioner для локальных PersistentVolume;
 - NFS CSI-драйвер для подключения существующего внешнего NFS-сервера;
 - локальный APT-репозиторий;
 - Harbor для образов и Helm OCI charts;
 - MetalLB, Gateway API и Traefik;
+- Metrics Server, cert-manager и Argo CD;
+- внешний Vault с Raft storage и интеграцией cert-manager через Kubernetes Auth;
 - Helm, K9s и kubectl для Linux, kubectl и K9s для Windows.
 
-Monitoring, MinIO и Argo CD пока не входят в собираемый Release. Они будут
-добавляться отдельным следующим слоем после стабилизации базового кластера.
+Prometheus Agent, Thanos, MinIO и остальной monitoring пока не входят в
+собираемый Release. Они будут добавлены отдельным следующим слоем.
 
 ## Как это устроено
 
@@ -30,7 +32,7 @@ Monitoring, MinIO и Argo CD пока не входят в собираемый 
 | Сторона | Что происходит |
 | --- | --- |
 | Машина с Интернетом | GitHub Actions скачивает пакеты, бинарники, charts, образы и официальный offline-installer Harbor, затем публикует GitHub Release |
-| Закрытая сеть | Человек распаковывает Release, запускает локальные APT и Harbor, импортирует артефакты и устанавливает Kubernetes через Ansible + kubeadm |
+| Закрытая сеть | Человек распаковывает Release, запускает локальные APT, Harbor и Vault, импортирует артефакты и устанавливает Kubernetes через Ansible + kubeadm |
 
 GitHub-специфичная логика находится только в `.github/`. Всё, что запускается
 в закрытом контуре вручную, находится в `deploy/`.
@@ -112,13 +114,14 @@ Release состоит из нескольких файлов, а не из од
 | `bootstrap.tar.zst` | README, manifest, конфигурация, скрипты распаковки и проверки |
 | `automation.tar.zst` | Ansible playbooks, templates и Kubernetes manifests |
 | `apt-debian12-amd64.tar.zst` | Файловый APT-репозиторий и готовый nginx Docker image |
-| `tools-linux-amd64.tar.zst` | kubeadm, kubelet, kubectl, containerd, runc, CNI, Helm, K9s, crane, crictl и Docker Compose |
+| `tools-linux-amd64.tar.zst` | kubeadm, kubelet, kubectl, containerd, runc, CNI, Helm, K9s, Vault, crane, crictl и Docker Compose |
 | `tools-windows-amd64.tar.zst` | `kubectl.exe` и `k9s.exe` |
 | `harbor-offline.tar.zst` | Официальный offline-installer Harbor и инфраструктурные скрипты |
-| `charts-platform.tar.zst` | NFS CSI, MetalLB и Traefik charts с values |
-| `images-kubernetes-NNN.tar.zst` | Kubernetes, Flannel и local-path images |
-| `images-networking-NNN.tar.zst` | Images из MetalLB и Traefik charts |
+| `charts-platform.tar.zst` | Cilium, NFS CSI, MetalLB, Traefik, Metrics Server, cert-manager и Argo CD charts с values |
+| `images-kubernetes-NNN.tar.zst` | Kubernetes и local-path images |
+| `images-networking-NNN.tar.zst` | Images из Cilium, MetalLB и Traefik charts |
 | `images-storage-NNN.tar.zst` | Images из NFS CSI chart |
+| `images-platform-NNN.tar.zst` | Images Metrics Server, cert-manager и Argo CD |
 | `images-extra-NNN.tar.zst` | Необязательные images из `config/extra-images.txt` |
 | `bundle-manifest.yaml` | Описание состава Release |
 | `SHA256SUMS` | Контрольные суммы всех Release assets |
@@ -148,6 +151,7 @@ gh release download RELEASE_TAG --dir k8s-airgap-release
 | --- | --- |
 | `192.168.122.1:8080` | Harbor на infrastructure-host |
 | `192.168.122.1:8081` | APT-репозиторий на infrastructure-host |
+| `192.168.122.1:8200` | Vault API на infrastructure-host |
 | `192.168.122.11` | `cp-01` |
 | `192.168.122.21` | `worker-01` |
 | `192.168.122.22` | `worker-02` |
@@ -159,9 +163,9 @@ Infrastructure-host одновременно используется как Ans
 не менее 2 CPU и 2 GiB RAM; для небольшого стенда рекомендуется примерно
 2560 MiB для control plane и 2304 MiB для каждого worker.
 
-Между Kubernetes-узлами должен проходить UDP `8472` для Flannel VXLAN. Также
+Между Kubernetes-узлами должен проходить UDP `8472` для Cilium VXLAN. Также
 необходимо разрешить используемые Kubernetes-порты, включая TCP `6443` и
-`10250`.
+`10250`. От Kubernetes-нод к infrastructure-host должен проходить TCP `8200`.
 
 ## Control plane: один или несколько
 
@@ -324,7 +328,84 @@ curl --fail http://127.0.0.1:8081/healthz
 На Kubernetes-узлах этот репозиторий будет доступен как
 `http://192.168.122.1:8081/debian`.
 
-### 4. Установить Harbor
+### 4. Установить и инициализировать внешний Vault
+
+Vault устанавливается как systemd-сервис непосредственно на
+infrastructure-host, то есть вне Kubernetes. Бинарник уже находится в
+`tools/vault`; Интернет не требуется. В лабораторном профиле используется один
+Vault-узел с integrated Raft storage в `/var/lib/vault` и HTTP listener.
+
+Указать адрес infrastructure-host, доступный с Kubernetes-нод, и установить
+сервис:
+
+```bash
+export VAULT_API_ADDRESS=http://192.168.122.1:8200
+
+sudo -E ./deploy/infrastructure/scripts/install-vault.sh "$PWD"
+```
+
+Повторный запуск установщика обновляет бинарник и конфигурацию, перезапускает
+сервис и тем самым снова переводит уже инициализированный Vault в sealed.
+После него необходимо выполнить `unseal-vault.sh`.
+
+Инициализировать Vault и автоматически создать:
+
+- Root CA `pki_root` со сроком 10 лет;
+- Intermediate CA `pki_int` со сроком 5 лет;
+- роль `pki_int/roles/kubernetes` для доменов `*.internal` и
+  `*.cluster.local`;
+- policy `cert-manager` для выпуска сертификатов.
+
+```bash
+sudo -E env \
+  VAULT_PUBLIC_ADDRESS=http://192.168.122.1:8200 \
+  ./deploy/infrastructure/scripts/initialize-vault.sh
+```
+
+Для стенда по умолчанию создаётся один unseal key с threshold `1`. Результат
+инициализации сохраняется с правами `0600`:
+
+```text
+/root/vault-init.json
+```
+
+Этот файл содержит unseal key и первоначальный root token. Сделайте его
+проверенную зашифрованную резервную копию и не переносите в Git, Release или
+на Kubernetes-ноды. Потеря файла вместе с работающим хостом означает потерю
+доступа к данным Vault.
+
+Проверка:
+
+```bash
+export VAULT_ADDR=http://127.0.0.1:8200
+sudo -E vault status
+curl --fail http://127.0.0.1:8200/v1/sys/health
+```
+
+После перезагрузки Vault стартует sealed. Для лабораторного стенда его нужно
+разблокировать вручную:
+
+```bash
+sudo ./deploy/infrastructure/scripts/unseal-vault.sh
+```
+
+Кроме initialization JSON необходимо сохранять данные Raft. Скрипт создаёт
+новый snapshot и намеренно не перезаписывает существующий файл:
+
+```bash
+sudo install -d -m 0700 /var/backups/vault
+sudo ./deploy/infrastructure/scripts/backup-vault.sh \
+  /var/backups/vault/vault-raft.snap
+```
+
+Snapshot и `/root/vault-init.json` необходимо копировать в защищённое внешнее
+хранилище. Один файл не заменяет другой: snapshot содержит данные Vault, а
+initialization JSON — ключи для их расшифровки.
+
+Перед production необходимо выбрать отдельную схему хранения unseal keys или
+Auto Unseal. Текущий `1/1` профиль сделан только для автономного стенда.
+
+### 5. Установить Harbor
 
 В лабораторном профиле Harbor работает по HTTP на полностью приватной сети.
 Сертификаты не требуются. Пароль должен состоять из букв, цифр, точки,
@@ -362,7 +443,7 @@ charts
 Push требует авторизацию, pull из этих проектов доступен без Kubernetes image
 pull secrets.
 
-### 5. Импортировать images и charts в Harbor
+### 6. Импортировать images и charts в Harbor
 
 Войти в Harbor через bundled crane:
 
@@ -394,7 +475,7 @@ export HARBOR_PASSWORD="${HARBOR_ADMIN_PASSWORD}"
 unset HARBOR_PASSWORD
 ```
 
-### 6. Скопировать bundle на Kubernetes-узлы
+### 7. Скопировать bundle на Kubernetes-узлы
 
 Playbooks ожидают bundle непосредственно в `/opt/k8s-airgap` на каждой ноде.
 Не создавайте внутри ещё одну директорию с версией.
@@ -417,10 +498,10 @@ ssh deploy@192.168.122.11 \
 ```text
 /opt/k8s-airgap/tools/kubeadm
 /opt/k8s-airgap/tools/containerd.tar.gz
-/opt/k8s-airgap/deploy/nodes/ansible/templates/flannel.yaml.j2
+/opt/k8s-airgap/repositories/registry/charts/archives/cilium-*.tgz
 ```
 
-### 7. Настроить Ansible inventory
+### 8. Настроить Ansible inventory
 
 На infrastructure-host:
 
@@ -446,6 +527,8 @@ cp inventory/ha.example.yml inventory/hosts.yml
 - `control_plane_endpoint_is_load_balancer`: `false` для одного control plane,
   `true` для нескольких;
 - `metallb_ip_address_pool`;
+- `argocd_hostname` и необходимость создания Argo CD HTTPRoute;
+- адрес и параметры внешнего Vault PKI, если нужен `ClusterIssuer`;
 - параметры внешнего NFS-сервера, если нужен `nfs-csi` StorageClass;
 - SSH-пользователя `ansible_user`.
 
@@ -466,6 +549,11 @@ all:
     harbor_registry: harbor.internal:8080
     harbor_plain_http: true
     harbor_skip_tls_verify: false
+    argocd_hostname: argocd.internal
+    argocd_create_http_route: true
+    cert_manager_vault_enabled: true
+    cert_manager_vault_server: http://192.168.122.1:8200
+    cert_manager_vault_allow_insecure_http: true
     nfs_csi_create_storage_class: false
     nfs_csi_server: ''
     nfs_csi_share: ''
@@ -495,10 +583,10 @@ ansible -i inventory/hosts.yml all \
   -b -m raw -a 'cat /etc/debian_version'
 ```
 
-### 8. Установить базовый Kubernetes-кластер
+### 9. Установить базовый Kubernetes-кластер
 
 Одна команда последовательно настраивает APT, подготавливает ноды, устанавливает
-containerd/kubelet/kubeadm, выполняет `kubeadm init`, устанавливает Flannel и
+containerd/kubelet/kubeadm, выполняет `kubeadm init`, устанавливает Cilium и
 local-path-provisioner, последовательно присоединяет дополнительные control
 plane и workers, а затем устанавливает NFS CSI:
 
@@ -516,8 +604,18 @@ playbooks/prepare-nodes.yml
 playbooks/init-control-plane.yml
 playbooks/join-control-planes.yml
 playbooks/join-workers.yml
+playbooks/configure-cilium.yml
 playbooks/install-nfs-csi.yml
 ```
+
+Cilium устанавливается с kube-proxy, VXLAN tunnel и Kubernetes IPAM. Hubble,
+метрики Cilium, отдельный Envoy DaemonSet и L7 proxy на этом этапе выключены.
+Встроенный Cilium LB IPAM также выключен: адреса Service типа LoadBalancer
+выдаёт только MetalLB. Стандартные Kubernetes NetworkPolicy уже поддерживаются.
+
+Это сценарий чистой установки. Автоматическая замена Flannel на Cilium в уже
+работающем кластере не реализована: такой кластер необходимо пересоздать либо
+мигрировать отдельно по согласованной процедуре.
 
 Сам NFS CSI-драйвер устанавливается всегда, если `nfs_csi_enabled: true`.
 Наличие NFS-сервера для установки драйвера не требуется. По умолчанию
@@ -548,7 +646,7 @@ NFS-сервер или дисковая полка в bundle не входят:
 существующий NFS export. На всех нодах пакет `nfs-common` устанавливается
 автоматически из локального APT.
 
-### 9. Проверить базовый кластер
+### 10. Проверить базовый кластер
 
 ```bash
 ssh deploy@192.168.122.11 \
@@ -559,7 +657,7 @@ ssh deploy@192.168.122.11 \
 ```
 
 Все control-plane и worker-узлы из inventory должны перейти в `Ready`, а
-Flannel, CoreDNS и local-path-provisioner — в `Running`.
+Cilium, CoreDNS и local-path-provisioner — в `Running`.
 
 Дополнительно проверить NFS CSI:
 
@@ -571,7 +669,7 @@ ssh deploy@192.168.122.11 \
   'sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf get pods -n kube-system -l app.kubernetes.io/name=csi-driver-nfs'
 ```
 
-### 10. Установить MetalLB и Traefik
+### 11. Установить MetalLB и Traefik
 
 Сначала убедиться, что MetalLB pool исключён из DHCP и доступен в той же L2
 сети, что и Kubernetes-ноды.
@@ -592,6 +690,146 @@ ssh deploy@192.168.122.11 \
   'sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf get svc -n traefik'
 ```
 
+### 12. Привязать Vault и установить платформенные компоненты
+
+После появления kube-apiserver внешний Vault нужно один раз связать с этим
+кластером. Скопировать публичный Kubernetes CA с первого control-plane на
+infrastructure-host:
+
+```bash
+ssh deploy@192.168.122.11 \
+  'sudo cat /etc/kubernetes/pki/ca.crt' \
+  | sudo tee /root/kubernetes-ca.crt >/dev/null
+sudo chmod 0600 /root/kubernetes-ca.crt
+```
+
+Настроить отдельный Kubernetes Auth mount, TokenReview и Vault role для
+cert-manager:
+
+```bash
+sudo ../../infrastructure/scripts/configure-vault-kubernetes.sh \
+  https://192.168.122.11:6443 \
+  /root/kubernetes-ca.crt
+```
+
+В HA-конфигурации первым параметром указывается общий VIP/DNS API load
+balancer, например `https://k8s-api.internal:6443`. Этот адрес должен входить в
+SAN сертификата kube-apiserver и разрешаться с infrastructure-host.
+
+Этот этап запускается после MetalLB и Traefik, поскольку playbook сразу создаёт
+HTTPRoute для Argo CD через Gateway `traefik/public`:
+
+```bash
+ansible-playbook \
+  -i inventory/hosts.yml \
+  playbooks/install-platform.yml
+```
+
+Если публиковать Argo CD через Traefik пока не нужно, установить в inventory
+`argocd_create_http_route: false`; остальные компоненты установятся как обычно.
+
+Проверить компоненты:
+
+```bash
+ssh deploy@192.168.122.11 \
+  'sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf top nodes'
+
+ssh deploy@192.168.122.11 \
+  'sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf get pods -n cert-manager'
+
+ssh deploy@192.168.122.11 \
+  'sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf get pods -n argocd'
+```
+
+Узнать адрес Traefik:
+
+```bash
+ssh deploy@192.168.122.11 \
+  'sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf get svc -n traefik traefik'
+```
+
+На администраторской машине сопоставить полученный `EXTERNAL-IP` имени
+`argocd.internal`, после чего открыть `http://argocd.internal`. Начальный логин
+— `admin`, пароль хранится в Secret:
+
+```bash
+kubectl --kubeconfig=/path/to/admin.conf \
+  -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath='{.data.password}' | base64 -d
+echo
+```
+
+Argo CD в изолированной сети должен использовать внутренний Git-сервер или
+другой репозиторий, доступный из кластера. cert-manager устанавливается вместе
+с CRD и создаёт Vault `ClusterIssuer` с именем `vault-pki`. Если Vault в
+конкретном окружении не нужен, перед запуском установить
+`cert_manager_vault_enabled: false`.
+
+Metrics Server использует `--kubelet-insecure-tls`, поскольку стандартный
+kubeadm-профиль не выдаёт kubelet serving certificates через автоматически
+одобряемый CSR flow. После настройки доверенных kubelet-сертификатов этот флаг
+следует удалить из `values/metrics-server.yaml`.
+
+### Внешний Vault как PKI для cert-manager
+
+Vault работает вне Kubernetes и должен быть доступен одновременно:
+
+- из Pod cert-manager — Vault API на TCP `8200`;
+- с Vault-host — Kubernetes API endpoint на TCP `6443`.
+
+Имя в `cert_manager_vault_server` должно разрешаться из Pod. Запись только в
+`/etc/hosts` Kubernetes-нод для этого недостаточна: используйте внутренний DNS
+либо укажите IP Vault-host непосредственно.
+
+Интеграция использует короткоживущий ServiceAccount JWT. cert-manager создаёт
+его для ServiceAccount `cert-manager/vault-issuer`, а внешний Vault проверяет
+JWT через Kubernetes TokenReview API. Статический Vault token и постоянный
+`token_reviewer_jwt` в Kubernetes не сохраняются.
+
+Все эти объекты создаются скриптами из шага 4 и шага 12. Соответствующая
+конфигурация inventory выглядит так:
+
+```yaml
+cert_manager_vault_enabled: true
+cert_manager_vault_server: http://192.168.122.1:8200
+cert_manager_vault_allow_insecure_http: true
+cert_manager_vault_pki_path: pki_int/sign/kubernetes
+cert_manager_vault_auth_mount: /v1/auth/kubernetes-airgap
+cert_manager_vault_role: cert-manager
+cert_manager_vault_cluster_issuer: vault-pki
+cert_manager_vault_kubernetes_api_audience: https://kubernetes.default.svc.cluster.local
+```
+
+В текущем профиле закрытого контура Vault работает по HTTP. Небезопасный режим
+фиксируется явно через `cert_manager_vault_allow_insecure_http: true`, чтобы
+выбор был виден в inventory. Установщик создаёт следующий listener:
+
+```hcl
+api_addr = "http://192.168.122.1:8200"
+
+listener "tcp" {
+  address     = "0.0.0.0:8200"
+  tls_disable = 1
+}
+```
+
+При HTTP ServiceAccount JWT, запросы на выпуск сертификатов и ответы Vault
+передаются открытым текстом. Доступ к TCP `8200` необходимо ограничить
+firewall подсетями Kubernetes-нод и административной сети. Если позже режим
+будет изменён на HTTPS, задаётся `https://...`, insecure-флаг переключается в
+`false`, а приватный CA передаётся через `cert_manager_vault_ca_bundle` в PEM.
+
+После `install-platform.yml` проверить:
+
+```bash
+kubectl --kubeconfig=/etc/kubernetes/admin.conf \
+  get clusterissuer vault-pki
+```
+
+Состояние должно быть `READY=True`. Сам `ClusterIssuer` не переводит Traefik
+или Argo CD на HTTPS автоматически: приложение должно создать объект
+`Certificate` и подключить полученный TLS Secret к HTTPS listener/route.
+
 ## Как работают images без переименования manifests
 
 Образы сохраняются в Harbor с полным upstream path:
@@ -600,8 +838,8 @@ ssh deploy@192.168.122.11 \
 registry.k8s.io/kube-apiserver:v1.36.2
   -> harbor.internal:8080/k8s/kube-apiserver:v1.36.2
 
-ghcr.io/flannel-io/flannel:v0.28.7
-  -> harbor.internal:8080/ghcr/flannel-io/flannel:v0.28.7
+quay.io/cilium/cilium:v1.20.2
+  -> harbor.internal:8080/quay/cilium/cilium:v1.20.2
 ```
 
 Kubernetes manifests продолжают ссылаться на исходные имена. На каждой ноде
@@ -653,10 +891,14 @@ cluster-admin и не должен попадать в Git или GitHub Release
   сам балансировщик репозиторий пока не разворачивает.
 - Лабораторный APT unsigned и используется через `Trusted: yes`.
 - Harbor работает по HTTP и предназначен только для доверенной приватной сети.
+- Vault устанавливается одним standalone-узлом с Raft storage и ручным
+  Shamir unseal. Это лабораторная, а не отказоустойчивая конфигурация. Vault
+  API работает по HTTP, поэтому TCP `8200` должен быть доступен только из
+  доверенных подсетей.
 - local-path-provisioner не обеспечивает отказоустойчивое хранилище.
 - NFS CSI не разворачивает NFS-сервер: доступный с каждой ноды NFS export
   должен существовать отдельно.
-- Monitoring, MinIO и Argo CD пока не собираются и не устанавливаются.
+- Prometheus Agent, Thanos и MinIO пока не собираются и не устанавливаются.
 - VM image не входит в Release: Debian 12 должен быть установлен или подготовлен
   заранее.
 

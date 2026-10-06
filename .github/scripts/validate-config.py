@@ -51,9 +51,13 @@ expected = {
         cluster_defaults["kubernetesVersion"],
         versions["KUBERNETES_VERSION"],
     ),
-    "chart lock Flannel": (
-        f"v{chart_lock['flannel']}",
-        versions["FLANNEL_VERSION"],
+    "chart lock Cilium": (
+        chart_lock["cilium"],
+        versions["CILIUM_CHART_VERSION"],
+    ),
+    "node Cilium": (
+        str(node_defaults["cilium_chart_version"]),
+        versions["CILIUM_CHART_VERSION"],
     ),
     "chart lock local-path-provisioner": (
         f"v{chart_lock['local-path-provisioner']}",
@@ -83,6 +87,30 @@ expected = {
         str(node_defaults["traefik_chart_version"]),
         versions["TRAEFIK_CHART_VERSION"],
     ),
+    "chart lock Metrics Server": (
+        chart_lock["metrics-server"],
+        versions["METRICS_SERVER_CHART_VERSION"],
+    ),
+    "node Metrics Server": (
+        str(node_defaults["metrics_server_chart_version"]),
+        versions["METRICS_SERVER_CHART_VERSION"],
+    ),
+    "chart lock cert-manager": (
+        chart_lock["cert-manager"],
+        versions["CERT_MANAGER_CHART_VERSION"],
+    ),
+    "node cert-manager": (
+        str(node_defaults["cert_manager_chart_version"]),
+        versions["CERT_MANAGER_CHART_VERSION"],
+    ),
+    "chart lock Argo CD": (
+        chart_lock["argo-cd"],
+        versions["ARGO_CD_CHART_VERSION"],
+    ),
+    "node Argo CD": (
+        str(node_defaults["argocd_chart_version"]),
+        versions["ARGO_CD_CHART_VERSION"],
+    ),
 }
 
 for index, inventory in enumerate(host_examples, start=1):
@@ -98,6 +126,22 @@ for index, inventory in enumerate(host_examples, start=1):
     expected[f"inventory {index} Traefik"] = (
         str(inventory_vars["traefik_chart_version"]),
         versions["TRAEFIK_CHART_VERSION"],
+    )
+    expected[f"inventory {index} Cilium"] = (
+        str(inventory_vars["cilium_chart_version"]),
+        versions["CILIUM_CHART_VERSION"],
+    )
+    expected[f"inventory {index} Metrics Server"] = (
+        str(inventory_vars["metrics_server_chart_version"]),
+        versions["METRICS_SERVER_CHART_VERSION"],
+    )
+    expected[f"inventory {index} cert-manager"] = (
+        str(inventory_vars["cert_manager_chart_version"]),
+        versions["CERT_MANAGER_CHART_VERSION"],
+    )
+    expected[f"inventory {index} Argo CD"] = (
+        str(inventory_vars["argocd_chart_version"]),
+        versions["ARGO_CD_CHART_VERSION"],
     )
     expected[f"inventory {index} NFS CSI"] = (
         str(inventory_vars["nfs_csi_chart_version"]),
