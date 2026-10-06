@@ -5,13 +5,16 @@
 `kubeadm`, `kubelet` и `kubectl`; Kubespray и другие Kubernetes-дистрибутивы не
 используются.
 
-Целевая конфигурация стенда:
+Поддерживаемая конфигурация:
 
-- один control plane и два worker-узла;
+- один или несколько control-plane узлов; для HA рекомендуется три;
+- произвольное количество worker-узлов;
+- готовый лабораторный профиль: один control plane и два worker-узла;
 - Debian 12, `amd64`;
 - containerd с `systemd` cgroups;
 - Flannel VXLAN, Pod CIDR `10.244.0.0/16`;
 - local-path-provisioner для локальных PersistentVolume;
+- NFS CSI-драйвер для подключения существующего внешнего NFS-сервера;
 - локальный APT-репозиторий;
 - Harbor для образов и Helm OCI charts;
 - MetalLB, Gateway API и Traefik;
@@ -74,7 +77,7 @@ GitHub-специфичная логика находится только в `.
 | `config/packages.txt` | Пакеты, которые попадут в offline APT closure |
 | `config/extra-images.txt` | Дополнительные OCI-образы для скачивания |
 | `config/registries.yaml` | Соответствие upstream registries проектам Harbor |
-| `deploy/nodes/ansible/inventory/*.example.yml` | Адреса узлов, APT, Harbor, API endpoint и MetalLB pool |
+| `deploy/nodes/ansible/inventory/*.example.yml` | Адреса узлов, APT, Harbor, API endpoint, MetalLB pool и необязательный NFS export |
 
 ## Что делает GitHub Actions
 
@@ -112,9 +115,10 @@ Release состоит из нескольких файлов, а не из од
 | `tools-linux-amd64.tar.zst` | kubeadm, kubelet, kubectl, containerd, runc, CNI, Helm, K9s, crane, crictl и Docker Compose |
 | `tools-windows-amd64.tar.zst` | `kubectl.exe` и `k9s.exe` |
 | `harbor-offline.tar.zst` | Официальный offline-installer Harbor и инфраструктурные скрипты |
-| `charts-networking.tar.zst` | MetalLB и Traefik charts с values |
+| `charts-platform.tar.zst` | NFS CSI, MetalLB и Traefik charts с values |
 | `images-kubernetes-NNN.tar.zst` | Kubernetes, Flannel и local-path images |
 | `images-networking-NNN.tar.zst` | Images из MetalLB и Traefik charts |
+| `images-storage-NNN.tar.zst` | Images из NFS CSI chart |
 | `images-extra-NNN.tar.zst` | Необязательные images из `config/extra-images.txt` |
 | `bundle-manifest.yaml` | Описание состава Release |
 | `SHA256SUMS` | Контрольные суммы всех Release assets |
@@ -158,6 +162,95 @@ Infrastructure-host одновременно используется как Ans
 Между Kubernetes-узлами должен проходить UDP `8472` для Flannel VXLAN. Также
 необходимо разрешить используемые Kubernetes-порты, включая TCP `6443` и
 `10250`.
+
+## Control plane: один или несколько
+
+Количество control-plane узлов определяется группой `control_plane` в Ansible
+inventory. Отдельной переменной `master_count` нет.
+
+| Режим | Группа `control_plane` | `k8s-api.internal` | `control_plane_endpoint_is_load_balancer` |
+| --- | --- | --- | --- |
+| Single | Один узел | Адрес этого control plane | `false` |
+| HA | Несколько узлов, рекомендуется три | VIP или DNS внешнего TCP load balancer | `true` |
+
+В режиме HA первый узел инициализируется через `kubeadm init`, после чего
+остальные последовательно присоединяются через `kubeadm join --control-plane`.
+Группа `workers` независимо определяет количество worker-узлов.
+
+Для отказоустойчивого кластера рекомендуется три control-plane узла, а не два.
+Перед ними нужен единый стабильный API endpoint:
+
+```text
+                  k8s-api.internal:6443
+                            |
+                  TCP load balancer / VIP
+                     /       |       \
+                  cp-01    cp-02    cp-03
+```
+
+`control_plane_endpoint` должен указывать на DNS-имя или VIP балансировщика, а
+не на адрес `cp-01`. Балансировщик перенаправляет TCP `6443` на все
+control-plane узлы. Для стенда это может быть HAProxy на infrastructure-host;
+для реальной отказоустойчивости сам балансировщик/VIP также должен быть
+резервирован, например парой HAProxy + Keepalived или внешним аппаратным
+балансировщиком.
+
+При нескольких control-plane узлах необходимо явно подтвердить, что endpoint
+подготовлен:
+
+```yaml
+control_plane_endpoint: k8s-api.internal:6443
+control_plane_endpoint_is_load_balancer: true
+```
+
+Готовый пример inventory для HA находится в
+`inventory/ha.example.yml`. В нём `k8s-api.internal` указывает на VIP
+`10.10.0.10`, а не на один из control-plane узлов:
+
+```yaml
+airgap_host_entries:
+  - address: 10.10.0.10
+    names: [k8s-api.internal]
+
+children:
+  control_plane:
+    hosts:
+      cp-01:
+        ansible_host: 10.10.0.11
+      cp-02:
+        ansible_host: 10.10.0.12
+      cp-03:
+        ansible_host: 10.10.0.13
+```
+
+После переноса bundle одна команда `playbooks/install-cluster.yml` выполняет
+всю последовательность:
+
+1. Подготовить все control-plane и worker-узлы одинаковым bundle.
+2. Проверить, что настроенный заранее балансировщик принимает
+   `k8s-api.internal:6443` и использует control-plane узлы как backends.
+3. Выполнить `kubeadm init` на `cp-01` с общим `controlPlaneEndpoint`.
+4. Выполнить `kubeadm init phase upload-certs --upload-certs`, получить
+   временный certificate key и присоединить `cp-02`, `cp-03` и другие узлы из
+   группы командой `kubeadm join --control-plane`.
+5. Присоединить workers к тому же API endpoint обычной командой `kubeadm join`.
+
+Kubeadm в такой конфигурации создаёт stacked etcd: по одному участнику etcd на
+каждом control-plane узле. Для кворума и переживания отказа одного узла нужны
+три участника.
+
+Получение certificate key и присоединение дополнительных control-plane узлов
+автоматизированы в `join-control-planes.yml`. Сам внешний API load balancer
+репозиторий пока не разворачивает: он должен существовать до запуска kubeadm.
+
+Существующий single-control-plane кластер также можно расширить до трёх узлов.
+Для этого нужно сохранить прежнее имя `k8s-api.internal`, поднять перед текущим
+`cp-01` балансировщик, перенаправить это имя на VIP, добавить `cp-02` и `cp-03`
+в inventory, включить `control_plane_endpoint_is_load_balancer` и снова
+запустить `install-cluster.yml`. Уже присоединённые узлы будут пропущены.
+Автоматическое уменьшение количества control-plane узлов не поддерживается:
+для удаления участника нужны отдельные операции kubeadm и etcd, поэтому просто
+удалять его из inventory нельзя.
 
 ## Установка после скачивания Release
 
@@ -306,7 +399,8 @@ unset HARBOR_PASSWORD
 Playbooks ожидают bundle непосредственно в `/opt/k8s-airgap` на каждой ноде.
 Не создавайте внутри ещё одну директорию с версией.
 
-Пример для одного узла; повторить для control plane и обоих workers:
+Пример для одного узла; повторить для каждого control-plane и worker-узла из
+inventory:
 
 ```bash
 scp -r . deploy@192.168.122.11:/tmp/k8s-airgap
@@ -335,14 +429,24 @@ cd deploy/nodes/ansible
 cp inventory/lab.example.yml inventory/hosts.yml
 ```
 
+Для трёх control-plane узлов вместо лабораторного примера использовать:
+
+```bash
+cp inventory/ha.example.yml inventory/hosts.yml
+```
+
 Проверить и при необходимости изменить в `inventory/hosts.yml`:
 
 - IP control plane и workers;
 - `apt_repo_url`;
 - адрес infrastructure-host для `harbor.internal`;
-- адрес control plane для `k8s-api.internal`;
+- адрес control plane для `k8s-api.internal`; в HA-схеме — VIP внешнего API
+  load balancer;
 - `control_plane_endpoint`;
+- `control_plane_endpoint_is_load_balancer`: `false` для одного control plane,
+  `true` для нескольких;
 - `metallb_ip_address_pool`;
+- параметры внешнего NFS-сервера, если нужен `nfs-csi` StorageClass;
 - SSH-пользователя `ansible_user`.
 
 Пример ключевой части inventory:
@@ -356,11 +460,15 @@ all:
     pod_subnet: 10.244.0.0/16
     service_subnet: 10.96.0.0/12
     control_plane_endpoint: k8s-api.internal:6443
+    control_plane_endpoint_is_load_balancer: false
     apt_repo_url: http://192.168.122.1:8081/debian
     apt_repo_trusted: true
     harbor_registry: harbor.internal:8080
     harbor_plain_http: true
     harbor_skip_tls_verify: false
+    nfs_csi_create_storage_class: false
+    nfs_csi_server: ''
+    nfs_csi_share: ''
     airgap_host_entries:
       - address: 192.168.122.1
         names: [harbor.internal]
@@ -391,7 +499,8 @@ ansible -i inventory/hosts.yml all \
 
 Одна команда последовательно настраивает APT, подготавливает ноды, устанавливает
 containerd/kubelet/kubeadm, выполняет `kubeadm init`, устанавливает Flannel и
-local-path-provisioner, затем присоединяет workers:
+local-path-provisioner, последовательно присоединяет дополнительные control
+plane и workers, а затем устанавливает NFS CSI:
 
 ```bash
 ansible-playbook \
@@ -405,8 +514,39 @@ ansible-playbook \
 playbooks/configure-apt.yml
 playbooks/prepare-nodes.yml
 playbooks/init-control-plane.yml
+playbooks/join-control-planes.yml
 playbooks/join-workers.yml
+playbooks/install-nfs-csi.yml
 ```
+
+Сам NFS CSI-драйвер устанавливается всегда, если `nfs_csi_enabled: true`.
+Наличие NFS-сервера для установки драйвера не требуется. По умолчанию
+`nfs_csi_create_storage_class: false`, поэтому драйвер ничего не
+провизионирует и не меняет default StorageClass.
+
+Чтобы подключить существующий NFS-сервер, перед установкой указать в inventory:
+
+```yaml
+nfs_csi_create_storage_class: true
+nfs_csi_server: 192.168.122.50
+nfs_csi_share: /exports/kubernetes
+nfs_csi_storage_class: nfs-csi
+```
+
+Будет создан не-default StorageClass `nfs-csi` с provisioner
+`nfs.csi.k8s.io`. `local-path` и `nfs-csi` не конфликтуют: приложение выбирает
+нужный класс через `spec.storageClassName`. Если NFS добавили уже после
+развёртывания кластера, достаточно повторно запустить:
+
+```bash
+ansible-playbook \
+  -i inventory/hosts.yml \
+  playbooks/install-nfs-csi.yml
+```
+
+NFS-сервер или дисковая полка в bundle не входят: CSI-драйвер подключает уже
+существующий NFS export. На всех нодах пакет `nfs-common` устанавливается
+автоматически из локального APT.
 
 ### 9. Проверить базовый кластер
 
@@ -418,8 +558,18 @@ ssh deploy@192.168.122.11 \
   'sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf get pods -A -o wide'
 ```
 
-Control plane и оба workers должны перейти в `Ready`, а Flannel, CoreDNS и
-local-path-provisioner — в `Running`.
+Все control-plane и worker-узлы из inventory должны перейти в `Ready`, а
+Flannel, CoreDNS и local-path-provisioner — в `Running`.
+
+Дополнительно проверить NFS CSI:
+
+```bash
+ssh deploy@192.168.122.11 \
+  'sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf get csidriver nfs.csi.k8s.io'
+
+ssh deploy@192.168.122.11 \
+  'sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf get pods -n kube-system -l app.kubernetes.io/name=csi-driver-nfs'
+```
 
 ### 10. Установить MetalLB и Traefik
 
@@ -498,11 +648,14 @@ cluster-admin и не должен попадать в Git или GitHub Release
 ## Ограничения текущего этапа
 
 - Поддерживаются Debian 12 и `amd64`.
-- Автоматизирован один control plane; присоединение дополнительных control
-  plane пока не реализовано.
+- Поддерживается один или несколько control-plane узлов. Для нескольких
+  control plane требуется заранее настроенный внешний API load balancer/VIP;
+  сам балансировщик репозиторий пока не разворачивает.
 - Лабораторный APT unsigned и используется через `Trusted: yes`.
 - Harbor работает по HTTP и предназначен только для доверенной приватной сети.
 - local-path-provisioner не обеспечивает отказоустойчивое хранилище.
+- NFS CSI не разворачивает NFS-сервер: доступный с каждой ноды NFS export
+  должен существовать отдельно.
 - Monitoring, MinIO и Argo CD пока не собираются и не устанавливаются.
 - VM image не входит в Release: Debian 12 должен быть установлен или подготовлен
   заранее.

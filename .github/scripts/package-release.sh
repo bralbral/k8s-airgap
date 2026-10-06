@@ -32,7 +32,7 @@ archive apt-debian12-amd64 repositories/apt
 archive tools-linux-amd64 --exclude='tools/windows-amd64' tools
 archive tools-windows-amd64 tools/windows-amd64
 archive harbor-offline deploy/infrastructure
-archive charts-networking repositories/registry/charts
+archive charts-platform repositories/registry/charts
 
 create_image_assets() {
   local group="$1"
@@ -78,6 +78,7 @@ create_image_assets() {
 
 create_image_assets kubernetes
 create_image_assets networking
+create_image_assets storage
 create_image_assets extra
 
 cp "${staging_dir}/manifest.yaml" "${release_dir}/bundle-manifest.yaml"

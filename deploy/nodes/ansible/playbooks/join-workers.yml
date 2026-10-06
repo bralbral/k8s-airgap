@@ -14,3 +14,4 @@
       ansible.builtin.command: "{{ join_command }} --cri-socket unix:///run/containerd/containerd.sock"
       args:
         creates: /etc/kubernetes/kubelet.conf
+      no_log: true

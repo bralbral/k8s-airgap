@@ -6,27 +6,28 @@ all:
     kube_version: v1.36.2
     pod_subnet: 10.244.0.0/16
     service_subnet: 10.96.0.0/12
-    control_plane_endpoint: k8s-api.internal:6443
-    control_plane_endpoint_is_load_balancer: false
 
-    # The libvirt default bridge exposes the host to guests as 192.168.122.1.
-    apt_repo_url: http://192.168.122.1:8081/debian
+    # This address must already be served by a TCP load balancer or VIP whose
+    # backends are cp-01, cp-02 and cp-03 on port 6443.
+    control_plane_endpoint: k8s-api.internal:6443
+    control_plane_endpoint_is_load_balancer: true
+
+    apt_repo_url: http://10.10.0.5:8081/debian
     apt_repo_trusted: true
     harbor_registry: harbor.internal:8080
     harbor_plain_http: true
     harbor_skip_tls_verify: false
     airgap_host_entries:
-      - address: 192.168.122.1
+      - address: 10.10.0.5
         names: [harbor.internal]
-      - address: 192.168.122.11
+      - address: 10.10.0.10
         names: [k8s-api.internal]
 
     local_path: /var/local-path-provisioner
-    metallb_ip_address_pool: 192.168.122.240-192.168.122.250
+    metallb_ip_address_pool: 10.10.0.240-10.10.0.250
     metallb_version: 0.16.1
     traefik_chart_version: 40.3.0
     nfs_csi_chart_version: 4.13.4
-    # The driver is installed, but no NFS StorageClass is created by default.
     nfs_csi_create_storage_class: false
     nfs_csi_server: ''
     nfs_csi_share: ''
@@ -34,10 +35,14 @@ all:
     control_plane:
       hosts:
         cp-01:
-          ansible_host: 192.168.122.11
+          ansible_host: 10.10.0.11
+        cp-02:
+          ansible_host: 10.10.0.12
+        cp-03:
+          ansible_host: 10.10.0.13
     workers:
       hosts:
         worker-01:
-          ansible_host: 192.168.122.21
+          ansible_host: 10.10.0.21
         worker-02:
-          ansible_host: 192.168.122.22
+          ansible_host: 10.10.0.22

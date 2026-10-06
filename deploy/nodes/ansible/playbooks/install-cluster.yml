@@ -5,4 +5,6 @@
 - ansible.builtin.import_playbook: configure-apt.yml
 - ansible.builtin.import_playbook: prepare-nodes.yml
 - ansible.builtin.import_playbook: init-control-plane.yml
+- ansible.builtin.import_playbook: join-control-planes.yml
 - ansible.builtin.import_playbook: join-workers.yml
+- ansible.builtin.import_playbook: install-nfs-csi.yml

@@ -1,0 +1,44 @@
+---
+- name: Install the optional NFS CSI storage layer
+  hosts: control_plane[0]
+  become: true
+  tasks:
+    - name: Install NFS CSI driver
+      ansible.builtin.command: >-
+        {{ bundle_root }}/tools/helm upgrade --install csi-driver-nfs
+        {{ bundle_root }}/repositories/registry/charts/archives/csi-driver-nfs-{{ nfs_csi_chart_version }}.tgz
+        --kubeconfig /etc/kubernetes/admin.conf
+        --namespace kube-system --wait --timeout 5m
+        --values {{ bundle_root }}/repositories/registry/charts/values/csi-driver-nfs.yaml
+      changed_when: true
+      when: nfs_csi_enabled | bool
+
+    - name: Validate optional NFS StorageClass settings
+      ansible.builtin.assert:
+        that:
+          - nfs_csi_server | length > 0
+          - nfs_csi_share | length > 0
+        fail_msg: >-
+          nfs_csi_server and nfs_csi_share are required when
+          nfs_csi_create_storage_class is true
+      when:
+        - nfs_csi_enabled | bool
+        - nfs_csi_create_storage_class | bool
+
+    - name: Render optional NFS StorageClass
+      ansible.builtin.template:
+        src: ../templates/nfs-csi-storage-class.yaml.j2
+        dest: /root/nfs-csi-storage-class.yaml
+        mode: '0600'
+      when:
+        - nfs_csi_enabled | bool
+        - nfs_csi_create_storage_class | bool
+
+    - name: Configure optional NFS StorageClass
+      ansible.builtin.command: >-
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf apply
+        -f /root/nfs-csi-storage-class.yaml
+      changed_when: true
+      when:
+        - nfs_csi_enabled | bool
+        - nfs_csi_create_storage_class | bool

@@ -37,6 +37,7 @@ trap 'rm -f "${notes_file}"' EXIT
   echo "| Kubernetes | ${KUBERNETES_VERSION} |"
   echo "| containerd | ${CONTAINERD_VERSION} |"
   echo "| Flannel | ${FLANNEL_VERSION} |"
+  echo "| NFS CSI Driver | ${NFS_CSI_CHART_VERSION} |"
   echo "| Harbor | ${HARBOR_VERSION} |"
   echo "| Docker Compose | ${DOCKER_COMPOSE_VERSION} |"
   echo "| Helm | ${HELM_VERSION} |"

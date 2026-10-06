@@ -58,17 +58,22 @@ printf '%s\n' '---' 'registries:' '  registry.k8s.io: k8s' '  quay.io: quay' \
 printf '%s\n' 'placeholder' > "${staging_dir}/repositories/registry/charts/archives/networking.tgz"
 printf '%s\n' 'placeholder' > "${staging_dir}/repositories/registry/charts/archives/metallb-smoke.tgz"
 printf '%s\n' 'placeholder' > "${staging_dir}/repositories/registry/charts/archives/traefik-smoke.tgz"
+printf '%s\n' 'placeholder' > "${staging_dir}/repositories/registry/charts/archives/csi-driver-nfs-smoke.tgz"
 printf '%s\n' 'placeholder' > "${staging_dir}/repositories/registry/charts/charts.lock"
 
 kubernetes_image='registry.k8s.io/pause:3.10.2'
 kubernetes_image_two='registry.k8s.io/pause:3.10.3'
 networking_image='quay.io/example/network:v1'
+storage_image='registry.k8s.io/sig-storage/nfsplugin:v4.13.4'
 printf '%s\n' "${kubernetes_image}" "${kubernetes_image_two}" "${networking_image}" \
+  "${storage_image}" \
   > "${staging_dir}/repositories/registry/images/images.txt"
 printf '%s\n' "${kubernetes_image}" "${kubernetes_image_two}" \
   > "${staging_dir}/repositories/registry/images/groups/kubernetes.txt"
 printf '%s\n' "${networking_image}" \
   > "${staging_dir}/repositories/registry/images/groups/networking.txt"
+printf '%s\n' "${storage_image}" \
+  > "${staging_dir}/repositories/registry/images/groups/storage.txt"
 : > "${staging_dir}/repositories/registry/images/groups/extra.txt"
 printf '%s\n' 'placeholder' \
   > "${staging_dir}/repositories/registry/images/archives/registry.k8s.io_pause_3.10.2.tar"
@@ -76,6 +81,8 @@ printf '%s\n' 'placeholder' \
   > "${staging_dir}/repositories/registry/images/archives/registry.k8s.io_pause_3.10.3.tar"
 printf '%s\n' 'placeholder' \
   > "${staging_dir}/repositories/registry/images/archives/quay.io_example_network_v1.tar"
+printf '%s\n' 'placeholder' \
+  > "${staging_dir}/repositories/registry/images/archives/registry.k8s.io_sig-storage_nfsplugin_v4.13.4.tar"
 
 for tool in kubeadm kubectl kubelet crictl helm crane docker-compose; do
   printf '%s\n' 'placeholder' > "${staging_dir}/tools/${tool}"
@@ -109,7 +116,8 @@ required_assets=(
   images-kubernetes-001.tar.zst
   images-kubernetes-002.tar.zst
   images-networking-001.tar.zst
-  charts-networking.tar.zst
+  images-storage-001.tar.zst
+  charts-platform.tar.zst
   bundle-manifest.yaml
   SHA256SUMS
   unpack-release.sh

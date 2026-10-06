@@ -43,6 +43,7 @@ node_defaults = load_yaml("deploy/nodes/ansible/group_vars/all.yml")
 host_examples = (
     load_yaml("deploy/nodes/ansible/inventory/hosts.example.yml"),
     load_yaml("deploy/nodes/ansible/inventory/lab.example.yml"),
+    load_yaml("deploy/nodes/ansible/inventory/ha.example.yml"),
 )
 
 expected = {
@@ -57,6 +58,14 @@ expected = {
     "chart lock local-path-provisioner": (
         f"v{chart_lock['local-path-provisioner']}",
         versions["LOCAL_PATH_PROVISIONER_VERSION"],
+    ),
+    "chart lock NFS CSI": (
+        chart_lock["csi-driver-nfs"],
+        versions["NFS_CSI_CHART_VERSION"],
+    ),
+    "node NFS CSI": (
+        str(node_defaults["nfs_csi_chart_version"]),
+        versions["NFS_CSI_CHART_VERSION"],
     ),
     "chart lock MetalLB": (
         chart_lock["metallb"],
@@ -89,6 +98,10 @@ for index, inventory in enumerate(host_examples, start=1):
     expected[f"inventory {index} Traefik"] = (
         str(inventory_vars["traefik_chart_version"]),
         versions["TRAEFIK_CHART_VERSION"],
+    )
+    expected[f"inventory {index} NFS CSI"] = (
+        str(inventory_vars["nfs_csi_chart_version"]),
+        versions["NFS_CSI_CHART_VERSION"],
     )
 
 errors = [

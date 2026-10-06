@@ -7,6 +7,7 @@ all:
     pod_subnet: 10.244.0.0/16
     service_subnet: 10.96.0.0/12
     control_plane_endpoint: k8s-api.internal:6443
+    control_plane_endpoint_is_load_balancer: false
     apt_repo_url: http://10.10.0.5:8081/debian
     apt_repo_trusted: true
     harbor_registry: harbor.internal:8080
@@ -22,6 +23,11 @@ all:
     metallb_ip_address_pool: 10.10.0.240-10.10.0.250
     metallb_version: 0.16.1
     traefik_chart_version: 40.3.0
+    nfs_csi_chart_version: 4.13.4
+    # Set this to true and provide an existing NFS server/export when needed.
+    nfs_csi_create_storage_class: false
+    nfs_csi_server: ''
+    nfs_csi_share: ''
   children:
     control_plane:
       hosts:

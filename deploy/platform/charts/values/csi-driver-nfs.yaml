@@ -1,0 +1,10 @@
+---
+# The controller needs no persistent storage. The node DaemonSet is deployed
+# on every Kubernetes node by the upstream chart.
+controller:
+  replicas: 1
+  enableSnapshotter: false
+
+# Snapshot CRDs/controller are not part of the base cluster.
+externalSnapshotter:
+  enabled: false

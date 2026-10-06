@@ -1,0 +1,73 @@
+---
+- name: Generate credentials for additional control-plane nodes
+  hosts: control_plane[0]
+  become: true
+  tasks:
+    - name: Create control-plane join command
+      ansible.builtin.command: kubeadm token create --print-join-command
+      register: control_plane_token
+      changed_when: true
+      no_log: true
+      when: groups['control_plane'] | length > 1
+
+    - name: Upload shared control-plane certificates
+      ansible.builtin.command: kubeadm init phase upload-certs --upload-certs
+      register: uploaded_control_plane_certificates
+      changed_when: true
+      no_log: true
+      when: groups['control_plane'] | length > 1
+
+    - name: Extract certificate key
+      ansible.builtin.set_fact:
+        control_plane_certificate_key: >-
+          {{
+            (uploaded_control_plane_certificates.stdout ~ '\n' ~
+             uploaded_control_plane_certificates.stderr) |
+            regex_search('[a-f0-9]{64}') | default('', true)
+          }}
+      no_log: true
+      when: groups['control_plane'] | length > 1
+
+    - name: Validate generated control-plane credentials
+      ansible.builtin.assert:
+        that:
+          - control_plane_token.stdout | length > 0
+          - control_plane_certificate_key | length == 64
+        fail_msg: kubeadm did not return valid control-plane join credentials.
+      no_log: true
+      when: groups['control_plane'] | length > 1
+
+    - name: Store control-plane join command
+      ansible.builtin.set_fact:
+        generated_control_plane_join_command: >-
+          {{ control_plane_token.stdout }} --control-plane
+          --certificate-key {{ control_plane_certificate_key }}
+          --cri-socket unix:///run/containerd/containerd.sock
+      no_log: true
+      when: groups['control_plane'] | length > 1
+
+- name: Join additional control-plane nodes
+  hosts: control_plane
+  become: true
+  serial: 1
+  vars:
+    first_control_plane: "{{ groups['control_plane'][0] }}"
+    primary_control_plane_join_command: >-
+      {{
+        hostvars[first_control_plane].generated_control_plane_join_command |
+        default('')
+      }}
+  tasks:
+    - name: Require control-plane join credentials
+      ansible.builtin.assert:
+        that: primary_control_plane_join_command | length > 0
+        fail_msg: Failed to obtain control-plane join credentials from kubeadm.
+      no_log: true
+      when: inventory_hostname != first_control_plane
+
+    - name: Join control-plane node
+      ansible.builtin.command: "{{ primary_control_plane_join_command }}"
+      args:
+        creates: /etc/kubernetes/admin.conf
+      no_log: true
+      when: inventory_hostname != first_control_plane

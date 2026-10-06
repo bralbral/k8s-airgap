@@ -1,0 +1,16 @@
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ nfs_csi_storage_class }}
+provisioner: nfs.csi.k8s.io
+parameters:
+  server: {{ nfs_csi_server | quote }}
+  share: {{ nfs_csi_share | quote }}
+reclaimPolicy: {{ nfs_csi_reclaim_policy }}
+volumeBindingMode: Immediate
+allowVolumeExpansion: true
+mountOptions:
+{% for option in nfs_csi_mount_options %}
+  - {{ option }}
+{% endfor %}

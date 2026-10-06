@@ -15,6 +15,7 @@ images_list="${images_repository_dir}/images.txt"
 image_groups_dir="${images_repository_dir}/groups"
 kubernetes_images_list="${image_groups_dir}/kubernetes.txt"
 networking_images_list="${image_groups_dir}/networking.txt"
+storage_images_list="${image_groups_dir}/storage.txt"
 extra_images_list="${image_groups_dir}/extra.txt"
 charts_repository_dir="${registry_repository_dir}/charts"
 charts_dir="${charts_repository_dir}/archives"
@@ -159,6 +160,8 @@ pull_chart() {
 
 pull_chart metallb https://metallb.github.io/metallb "${METALLB_VERSION}"
 pull_chart traefik https://traefik.github.io/charts "${TRAEFIK_CHART_VERSION}"
+pull_chart csi-driver-nfs https://kubernetes-csi.github.io/csi-driver-nfs \
+  "${NFS_CSI_CHART_VERSION}"
 
 flannel_manifest="${platform_dir}/manifests/upstream/flannel.yaml"
 local_path_manifest="${platform_dir}/manifests/upstream/local-path-provisioner.yaml"
@@ -196,13 +199,28 @@ sort -u -o "${networking_images_list}" "${networking_images_list}"
 comm -23 "${networking_images_list}" "${kubernetes_images_list}" > "${networking_images_list}.unique"
 mv "${networking_images_list}.unique" "${networking_images_list}"
 
+"${tools_dir}/helm" template offline \
+  "${charts_dir}/csi-driver-nfs-${NFS_CSI_CHART_VERSION}.tgz" \
+  --namespace kube-system --include-crds \
+  --values "${charts_repository_dir}/values/csi-driver-nfs.yaml" |
+  awk '/^[[:space:]]*image:[[:space:]]*/ { image=$2; gsub(/["'"'"']/, "", image); print image }' \
+  > "${storage_images_list}"
+sort -u -o "${storage_images_list}" "${storage_images_list}"
+cat "${kubernetes_images_list}" "${networking_images_list}" | sort -u \
+  > "${image_groups_dir}/assigned.txt"
+comm -23 "${storage_images_list}" "${image_groups_dir}/assigned.txt" \
+  > "${storage_images_list}.unique"
+mv "${storage_images_list}.unique" "${storage_images_list}"
+
 grep -Ev '^#|^$' "${repo_root}/config/extra-images.txt" | sort -u > "${extra_images_list}" || true
-cat "${kubernetes_images_list}" "${networking_images_list}" | sort -u > "${image_groups_dir}/assigned.txt"
+cat "${kubernetes_images_list}" "${networking_images_list}" "${storage_images_list}" |
+  sort -u > "${image_groups_dir}/assigned.txt"
 comm -23 "${extra_images_list}" "${image_groups_dir}/assigned.txt" > "${extra_images_list}.unique"
 mv "${extra_images_list}.unique" "${extra_images_list}"
 rm "${image_groups_dir}/assigned.txt"
 
-cat "${kubernetes_images_list}" "${networking_images_list}" "${extra_images_list}" |
+cat "${kubernetes_images_list}" "${networking_images_list}" \
+  "${storage_images_list}" "${extra_images_list}" |
   sort -u > "${images_list}"
 
 if grep -Ev '^(docker\.io|ghcr\.io|quay\.io|registry\.k8s\.io)/[^[:space:]]+:[^[:space:]]+$' "${images_list}"; then
@@ -235,10 +253,11 @@ done < "${images_list}"
   printf '%s\n' '  - tools-linux-amd64.tar.zst'
   printf '%s\n' '  - tools-windows-amd64.tar.zst'
   printf '%s\n' '  - harbor-offline.tar.zst'
-  printf '%s\n' '  - charts-networking.tar.zst'
+  printf '%s\n' '  - charts-platform.tar.zst'
   printf '%s\n' 'release_asset_patterns:'
   printf '%s\n' '  - images-kubernetes-*.tar.zst'
   printf '%s\n' '  - images-networking-*.tar.zst'
+  printf '%s\n' '  - images-storage-*.tar.zst'
   printf '%s\n' 'optional_release_asset_patterns:'
   printf '%s\n' '  - images-extra-*.tar.zst'
 } > "${out_dir}/manifest.yaml"

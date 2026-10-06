@@ -2,6 +2,10 @@
 bundle_root: /opt/k8s-airgap
 containerd_config: /etc/containerd/config.toml
 airgap_host_entries: []
+# With more than one host in the control_plane inventory group, this must be
+# true and control_plane_endpoint must resolve to an external TCP load balancer
+# or VIP in front of every control-plane node.
+control_plane_endpoint_is_load_balancer: false
 node_packages:
   - ca-certificates
   - chrony
@@ -31,3 +35,14 @@ containerd_registry_mirrors:
 metallb_ip_address_pool: 10.10.0.240-10.10.0.250
 metallb_version: 0.16.1
 traefik_chart_version: 40.3.0
+nfs_csi_enabled: true
+nfs_csi_chart_version: 4.13.4
+# Installing the driver does not require an NFS server. A StorageClass is
+# created only when the following switch and endpoint values are configured.
+nfs_csi_create_storage_class: false
+nfs_csi_server: ''
+nfs_csi_share: ''
+nfs_csi_storage_class: nfs-csi
+nfs_csi_reclaim_policy: Retain
+nfs_csi_mount_options:
+  - nfsvers=4.1

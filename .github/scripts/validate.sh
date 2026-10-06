@@ -36,12 +36,16 @@ python3 .github/scripts/validate-config.py
 
 echo "Validating Ansible playbook syntax"
 ansible_local_temp="$(mktemp -d)"
-for playbook in deploy/nodes/ansible/playbooks/*.yml; do
-  ANSIBLE_LOCAL_TEMP="${ansible_local_temp}" \
-  ANSIBLE_CONFIG=deploy/nodes/ansible/ansible.cfg \
-    ansible-playbook --syntax-check \
-      -i deploy/nodes/ansible/inventory/lab.example.yml \
-      "${playbook}"
+for inventory in \
+  deploy/nodes/ansible/inventory/lab.example.yml \
+  deploy/nodes/ansible/inventory/ha.example.yml; do
+  for playbook in deploy/nodes/ansible/playbooks/*.yml; do
+    ANSIBLE_LOCAL_TEMP="${ansible_local_temp}" \
+    ANSIBLE_CONFIG=deploy/nodes/ansible/ansible.cfg \
+      ansible-playbook --syntax-check \
+        -i "${inventory}" \
+        "${playbook}"
+  done
 done
 rmdir "${ansible_local_temp}"
 

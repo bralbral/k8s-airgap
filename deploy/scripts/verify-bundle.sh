@@ -12,9 +12,11 @@ required_files=(
   repositories/apt/repository/dists/bookworm/main/binary-amd64/Packages.gz
   repositories/registry/mapping.yaml
   repositories/registry/images/images.txt
+  repositories/registry/images/groups/storage.txt
   repositories/registry/charts/charts.lock
   deploy/nodes/ansible/templates/flannel.yaml.j2
   deploy/nodes/ansible/templates/local-path-provisioner.yaml.j2
+  deploy/nodes/ansible/playbooks/join-control-planes.yml
   deploy/platform/manifests/upstream/gateway-api-standard.yaml
   tools/cni-plugins.tgz
   tools/containerd.tar.gz
@@ -32,7 +34,8 @@ done
 for required_pattern in \
   'deploy/infrastructure/harbor/harbor-offline-installer-*.tgz' \
   'repositories/registry/charts/archives/metallb-*.tgz' \
-  'repositories/registry/charts/archives/traefik-*.tgz'; do
+  'repositories/registry/charts/archives/traefik-*.tgz' \
+  'repositories/registry/charts/archives/csi-driver-nfs-*.tgz'; do
   compgen -G "${required_pattern}" >/dev/null || {
     echo "Required bundle artifact is missing: ${required_pattern}" >&2
     exit 1
