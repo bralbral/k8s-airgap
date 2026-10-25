@@ -1,0 +1,18 @@
+---
+- name: Verify the downloaded bundle on the Ansible controller
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+  vars:
+    data_dir: "{{ playbook_dir }}/../../../data"
+  tasks:
+    - name: Check bundle checksums and required offline artifacts
+      ansible.builtin.command:
+        argv: [bash, "{{ playbook_dir }}/../../scripts/verify-bundle.sh", "{{ data_dir }}"]
+      changed_when: false
+    - name: Require the Kubernetes version expected by this checkout
+      ansible.builtin.assert:
+        that:
+          - "('KUBERNETES_VERSION=' ~ hostvars[groups['control_plane'][0]].kube_version) in lookup('file', data_dir ~ '/manifest.env').splitlines()"
+        fail_msg: Use automation from the same release as the downloaded data.

@@ -1,0 +1,24 @@
+---
+- name: Expose cluster services through MetalLB L2
+  hosts: control_plane[0]
+  become: true
+  tasks:
+    - name: Install MetalLB from the local chart
+      ansible.builtin.command: >-
+        {{ bundle_root }}/tools/helm upgrade --install metallb
+        {{ bundle_root }}/repositories/registry/charts/archives/metallb-{{ metallb_version }}.tgz
+        --kubeconfig /etc/kubernetes/admin.conf
+        --namespace metallb-system --create-namespace --wait --timeout 5m
+      changed_when: true
+    - name: Render the reserved address pool
+      ansible.builtin.template:
+        src: ../templates/metallb-l2-pool.yaml.j2
+        dest: /root/metallb-l2-pool.yaml
+        mode: '0600'
+    - name: Configure MetalLB
+      ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f /root/metallb-l2-pool.yaml
+      register: metallb_pool
+      retries: 10
+      delay: 5
+      until: metallb_pool.rc == 0
+      changed_when: true

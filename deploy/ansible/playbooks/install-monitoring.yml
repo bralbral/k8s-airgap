@@ -1,0 +1,22 @@
+---
+- name: Install cluster metrics exporters and a Prometheus agent
+  hosts: control_plane[0]
+  become: true
+  tasks:
+    - name: Render the agent and exporters
+      ansible.builtin.template:
+        src: ../templates/monitoring.yaml.j2
+        dest: /root/monitoring.yaml
+        mode: '0600'
+    - name: Apply monitoring resources
+      ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f /root/monitoring.yaml
+      changed_when: true
+    - name: Restart the agent to pick up scrape configuration changes
+      ansible.builtin.command: >-
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf -n monitoring rollout restart statefulset/prometheus-agent
+      changed_when: true
+    - name: Wait for monitoring workloads
+      ansible.builtin.command: >-
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf -n monitoring rollout status {{ item }} --timeout=5m
+      loop: [statefulset/prometheus-agent, daemonset/node-exporter, deployment/kube-state-metrics]
+      changed_when: false

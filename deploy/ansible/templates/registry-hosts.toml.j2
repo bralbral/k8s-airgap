@@ -1,0 +1,7 @@
+{% set endpoint = ('http' if harbor_plain_http else 'https') ~ '://' ~ harbor_registry ~ '/v2/' ~ registry_mirror.project %}
+# Use Harbor as the server as well as the mirror: no public fallback.
+server = "{{ endpoint }}"
+[host."{{ endpoint }}"]
+  capabilities = ["pull", "resolve"]
+  override_path = true
+  skip_verify = {{ harbor_skip_tls_verify | bool | lower }}

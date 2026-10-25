@@ -1,0 +1,41 @@
+---
+name: airgap-minio
+services:
+  minio:
+    image: cr.yandex/mirror/minio/minio:RELEASE.2023-08-09T23-30-22Z
+    command: [server, /data, --console-address, ":9001"]
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-Airgap2026!}
+    ports:
+      - "${BIND_ADDRESS:-0.0.0.0}:9000:9000"
+      - "${BIND_ADDRESS:-0.0.0.0}:9001:9001"
+    volumes:
+      - /stage/minio:/data
+    healthcheck:
+      test: [CMD, curl, -f, http://127.0.0.1:9000/minio/health/live]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+  init:
+    image: amazon/aws-cli:2.31.18
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-Airgap2026!}
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_EC2_METADATA_DISABLED: "true"
+      AWS_PAGER: ""
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        if aws --endpoint-url http://minio:9000 s3api head-bucket --bucket thanos 2>/dev/null; then
+          echo 'Bucket thanos already exists.'
+        else
+          aws --endpoint-url http://minio:9000 s3api create-bucket --bucket thanos
+          echo 'Bucket thanos created.'
+        fi

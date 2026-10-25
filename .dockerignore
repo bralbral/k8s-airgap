@@ -1,7 +1,0 @@
-**
-!config/
-!config/packages.txt
-!deploy/
-!deploy/infrastructure/
-!deploy/infrastructure/apt/
-!deploy/infrastructure/apt/nginx.conf

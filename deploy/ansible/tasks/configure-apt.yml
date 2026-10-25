@@ -1,0 +1,72 @@
+---
+- name: Validate the local APT endpoint
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == 'Debian'
+      - ansible_distribution_major_version == '12'
+      - apt_repo_url is match('^http://[^/\s]+(?::[0-9]+)?$')
+    fail_msg: Set apt_repo_url to the local HTTP endpoint without a trailing slash.
+
+- name: Create APT source and backup directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - /etc/apt/sources.list.d
+    - /etc/apt/airgap-source-backup
+
+- name: Find existing APT source files
+  ansible.builtin.find:
+    paths: /etc/apt/sources.list.d
+    patterns: ['*.list', '*.sources']
+    excludes: [debian-local.sources]
+  register: old_apt_sources
+
+- name: Disable previous APT sources while preserving the files
+  ansible.builtin.command:
+    argv:
+      - mv
+      - --backup=numbered
+      - "{{ item.path }}"
+      - /etc/apt/airgap-source-backup/
+    removes: "{{ item.path }}"
+  loop: "{{ old_apt_sources.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Inspect legacy sources.list
+  ansible.builtin.stat:
+    path: /etc/apt/sources.list
+  register: legacy_apt_source
+
+- name: Back up and disable legacy sources.list
+  ansible.builtin.command:
+    argv: [mv, '--backup=numbered', /etc/apt/sources.list, /etc/apt/airgap-source-backup/]
+    removes: /etc/apt/sources.list
+  when: legacy_apt_source.stat.exists
+
+- name: Configure Debian 12 sources through the local proxy
+  ansible.builtin.template:
+    src: ../templates/debian-local.sources.j2
+    dest: /etc/apt/sources.list.d/debian-local.sources
+    mode: '0644'
+
+- name: Check for cloud-init
+  ansible.builtin.stat:
+    path: /etc/cloud/cloud.cfg.d
+  register: cloud_config_directory
+
+- name: Preserve local APT sources across cloud-init runs
+  ansible.builtin.copy:
+    dest: /etc/cloud/cloud.cfg.d/99-local-apt.cfg
+    mode: '0644'
+    content: |
+      apt:
+        preserve_sources_list: true
+  when: cloud_config_directory.stat.isdir | default(false)
+
+- name: Refresh Debian indexes through the local proxy
+  ansible.builtin.command:
+    argv: [apt-get, -o, 'APT::Update::Error-Mode=any', update]
+  changed_when: false

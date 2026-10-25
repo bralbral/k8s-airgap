@@ -1,0 +1,8 @@
+---
+# Verify local data, copy artifacts to VMs, install from local files, then kubeadm.
+# Run CNI separately after this playbook.
+- ansible.builtin.import_playbook: verify-data.yml
+- ansible.builtin.import_playbook: prepare-nodes.yml
+- ansible.builtin.import_playbook: init-control-plane.yml
+- ansible.builtin.import_playbook: join-control-planes.yml
+- ansible.builtin.import_playbook: join-workers.yml

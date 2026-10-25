@@ -1,0 +1,13 @@
+Types: deb
+URIs: {{ apt_repo_url }}/debian
+Suites: bookworm bookworm-updates
+Components: main contrib non-free non-free-firmware
+Architectures: amd64
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+
+Types: deb
+URIs: {{ apt_repo_url }}/debian-security
+Suites: bookworm-security
+Components: main contrib non-free non-free-firmware
+Architectures: amd64
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg

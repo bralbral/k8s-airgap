@@ -1,0 +1,52 @@
+---
+- name: Provision local KVM lab virtual machines
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+    vm_config_file: "{{ playbook_dir }}/../../infrastructure/vms/config.json"
+    vm_helper: "{{ playbook_dir }}/../files/create-vms.py"
+    vm_recreate: false
+    vm_recover_incomplete: false
+    vm_check_only: false
+  tasks:
+    - name: Validate mutually exclusive VM modes
+      ansible.builtin.assert:
+        that:
+          - not ((vm_recreate | bool) and (vm_recover_incomplete | bool))
+        fail_msg: Use vm_recreate or vm_recover_incomplete, not both.
+
+    - name: Validate VM configuration without changing the host
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_playbook_python }}"
+          - "{{ vm_helper }}"
+          - "{{ vm_config_file }}"
+          - --check
+          - --json
+      register: vm_validation
+      changed_when: false
+      check_mode: false
+
+    - name: Show configured virtual machines
+      ansible.builtin.debug:
+        msg: "{{ (vm_validation.stdout | from_json).log.splitlines() }}"
+
+    - name: Create or start virtual machines
+      ansible.builtin.command:
+        argv: >-
+          {{ [ansible_playbook_python, vm_helper, vm_config_file, '--json']
+             + (['--recreate'] if vm_recreate | bool else [])
+             + (['--recover-incomplete'] if vm_recover_incomplete | bool else []) }}
+      register: vm_operation
+      changed_when: (vm_operation.stdout | from_json).changed | bool
+      when:
+        - not ansible_check_mode
+        - not vm_check_only | bool
+
+    - name: Show VM operation result
+      ansible.builtin.debug:
+        msg: "{{ (vm_operation.stdout | from_json).log.splitlines() }}"
+      when: vm_operation is not skipped

@@ -1,0 +1,26 @@
+---
+- name: Initialise the first control-plane node
+  hosts: control_plane[0]
+  become: true
+  tasks:
+    - name: Render kubeadm configuration
+      ansible.builtin.template:
+        src: ../templates/kubeadm-init.yaml.j2
+        dest: /root/kubeadm-init.yaml
+        mode: '0600'
+
+    - name: Initialise first control-plane node
+      ansible.builtin.command: kubeadm init --config /root/kubeadm-init.yaml
+      args:
+        creates: /etc/kubernetes/admin.conf
+
+    - name: Create worker join command
+      ansible.builtin.command: kubeadm token create --print-join-command
+      register: join_command
+      changed_when: true
+      no_log: true
+
+    - name: Store worker join command
+      ansible.builtin.set_fact:
+        worker_join_command: "{{ join_command.stdout }}"
+      no_log: true

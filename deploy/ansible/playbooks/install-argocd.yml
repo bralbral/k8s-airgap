@@ -1,0 +1,30 @@
+---
+- name: Install Argo CD as the final bootstrap component
+  hosts: control_plane[0]
+  become: true
+  tasks:
+    - name: Install the local Argo CD chart
+      ansible.builtin.command: >-
+        {{ bundle_root }}/tools/helm upgrade --install argocd
+        {{ bundle_root }}/repositories/registry/charts/archives/argo-cd-{{ argocd_chart_version }}.tgz
+        --kubeconfig /etc/kubernetes/admin.conf
+        --namespace argocd --create-namespace --wait --timeout 10m
+        --values {{ bundle_root }}/repositories/registry/charts/values/argo-cd.yaml
+      changed_when: true
+    - name: Render a LoadBalancer Service without NodePorts
+      ansible.builtin.template:
+        src: ../templates/argocd-service.yaml.j2
+        dest: /root/argocd-service.yaml
+        mode: '0600'
+    - name: Expose Argo CD on its reserved MetalLB address
+      ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f /root/argocd-service.yaml
+      changed_when: true
+    - name: Wait for MetalLB to assign the requested IP
+      ansible.builtin.command: >-
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf -n argocd get service argocd-public
+        -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+      register: argocd_address
+      changed_when: false
+      until: argocd_address.stdout == argocd_ip
+      retries: 30
+      delay: 5

@@ -1,0 +1,26 @@
+---
+# Source files live on the Ansible controller, not on the VMs.
+data_dir: "{{ playbook_dir }}/../../../data"
+bundle_root: /opt/k8s-airgap
+kube_version: v1.36.2
+pod_subnet: 10.244.0.0/16
+service_subnet: 10.96.0.0/12
+containerd_config: /etc/containerd/config.toml
+pause_image: registry.k8s.io/pause:3.10.2
+containerd_registry_mirrors:
+  - {upstream: docker.io, project: docker}
+  - {upstream: ghcr.io, project: ghcr}
+  - {upstream: quay.io, project: quay}
+  - {upstream: registry.k8s.io, project: k8s}
+cilium_chart_version: 1.20.2
+cilium_operator_replicas: 1
+metallb_version: 0.16.1
+argocd_chart_version: 10.9.6
+local_path: /var/lib/k8s-storage
+prometheus_image: quay.io/prometheus/prometheus:v3.7.1
+node_exporter_image: quay.io/prometheus/node-exporter:v1.9.1
+kube_state_metrics_image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.17.0
+
+# Debian package requests go to the infrastructure host.
+apt_repo_url: "http://{{ harbor_registry.split(':')[0] }}:8081"
+apt_proxy_enabled: true

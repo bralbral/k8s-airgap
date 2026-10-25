@@ -1,0 +1,268 @@
+---
+- name: Prepare Debian 12 Kubernetes nodes from an offline bundle
+  hosts: control_plane:workers
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Require Debian 12
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == 'Debian'
+          - ansible_distribution_major_version == '12'
+          - ansible_architecture == 'x86_64'
+          - groups['control_plane'] | length == 3
+          - groups['workers'] | length >= 1
+        fail_msg: Requires Debian 12 amd64, three control-plane nodes and at least one worker.
+
+    - name: Configure the local Debian APT proxy
+      ansible.builtin.import_tasks: ../tasks/configure-apt.yml
+      tags: [apt]
+      when: apt_proxy_enabled | default(true) | bool
+
+    - name: Create directories for the transferred bundle
+      ansible.builtin.file:
+        path: "{{ bundle_root }}/{{ item }}"
+        state: directory
+        mode: '0755'
+      loop: [tools, debs, apt-lists/partial]
+
+    - name: Copy the Debian package archive from the controller
+      ansible.builtin.copy:
+        src: "{{ data_dir }}/packages/debian12-amd64.tar.gz"
+        dest: "{{ bundle_root }}/debian12-amd64.tar.gz"
+        mode: '0644'
+      register: deb_archive
+
+    - name: Copy node binaries from the controller before installing anything
+      ansible.builtin.copy:
+        src: "{{ data_dir }}/tools/{{ item }}"
+        dest: "{{ bundle_root }}/tools/{{ item }}"
+        mode: '0755'
+      loop: [kubeadm, kubelet, kubectl, crictl, runc, containerd.tar.gz, cni-plugins.tgz]
+
+    - name: Remove packages from a previously transferred release
+      ansible.builtin.file:
+        path: "{{ bundle_root }}/debs"
+        state: absent
+      when: deb_archive.changed
+
+    - name: Create the unpack directory
+      ansible.builtin.file:
+        path: "{{ bundle_root }}/debs"
+        state: directory
+        mode: '0755'
+
+    - name: Unpack Debian packages on the node
+      ansible.builtin.unarchive:
+        remote_src: true
+        src: "{{ bundle_root }}/debian12-amd64.tar.gz"
+        dest: "{{ bundle_root }}/debs"
+
+    - name: Install Debian packages strictly from the transferred files
+      ansible.builtin.shell: |
+        set -eu
+        apt-get -y --no-download --no-remove --no-install-recommends \
+          -o Dir::Etc::sourcelist=/dev/null \
+          -o Dir::Etc::sourceparts=- \
+          -o Dir::State::lists={{ (bundle_root ~ '/apt-lists') | quote }} \
+          install ./*.deb
+      args:
+        chdir: "{{ bundle_root }}/debs"
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+        LC_ALL: C
+      register: deb_install
+      changed_when: "'0 upgraded, 0 newly installed, 0 to remove' not in deb_install.stdout"
+
+    - name: Configure an internal NTP source
+      ansible.builtin.copy:
+        dest: /etc/chrony/chrony.conf
+        mode: '0644'
+        content: |
+          server {{ ntp_server }} iburst
+          driftfile /var/lib/chrony/chrony.drift
+          makestep 1.0 3
+          rtcsync
+      notify: Restart chrony
+
+    - name: Set the static inventory hostname
+      ansible.builtin.hostname:
+        name: "{{ inventory_hostname }}"
+
+    - name: Disable swap immediately
+      ansible.builtin.command: swapoff -a
+      changed_when: false
+
+    - name: Disable swap in fstab
+      ansible.builtin.replace:
+        path: /etc/fstab
+        regexp: '^(?!#)(.*\s+swap\s+.*)$'
+        replace: '# \1'
+
+    - name: Load Kubernetes kernel modules at boot
+      ansible.builtin.copy:
+        dest: /etc/modules-load.d/k8s.conf
+        mode: '0644'
+        content: "overlay\nbr_netfilter\n"
+
+    - name: Configure Kubernetes sysctls
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/99-kubernetes-cri.conf
+        mode: '0644'
+        content: "net.bridge.bridge-nf-call-iptables = 1\nnet.bridge.bridge-nf-call-ip6tables = 1\nnet.ipv4.ip_forward = 1\n"
+
+    - name: Apply kernel modules and sysctls
+      ansible.builtin.shell: |
+        modprobe overlay
+        modprobe br_netfilter
+        sysctl --system
+      changed_when: false
+
+    - name: Create local persistent-volume path
+      ansible.builtin.file:
+        path: "{{ local_path }}"
+        state: directory
+        mode: '0770'
+
+    - name: Create crictl configuration
+      ansible.builtin.copy:
+        dest: /etc/crictl.yaml
+        mode: '0644'
+        content: |
+          runtime-endpoint: unix:///run/containerd/containerd.sock
+          image-endpoint: unix:///run/containerd/containerd.sock
+
+    - name: Install Kubernetes command binaries
+      ansible.builtin.copy:
+        remote_src: true
+        src: "{{ bundle_root }}/tools/{{ item }}"
+        dest: "/usr/local/bin/{{ item }}"
+        mode: '0755'
+      loop: [kubeadm, kubelet, kubectl, crictl]
+
+    - name: Install containerd binaries
+      ansible.builtin.unarchive:
+        remote_src: true
+        src: "{{ bundle_root }}/tools/containerd.tar.gz"
+        dest: /usr/local
+
+    - name: Install runc and CNI plugins
+      block:
+        - ansible.builtin.file:
+            path: /opt/cni/bin
+            state: directory
+            mode: '0755'
+        - ansible.builtin.copy:
+            remote_src: true
+            src: "{{ bundle_root }}/tools/runc"
+            dest: /usr/local/sbin/runc
+            mode: '0755'
+        - ansible.builtin.unarchive:
+            remote_src: true
+            src: "{{ bundle_root }}/tools/cni-plugins.tgz"
+            dest: /opt/cni/bin
+
+    - name: Install containerd and kubelet service units
+      block:
+        - ansible.builtin.file:
+            path: /usr/local/lib/systemd/system
+            state: directory
+            mode: '0755'
+        - ansible.builtin.copy:
+            dest: /usr/local/lib/systemd/system/containerd.service
+            mode: '0644'
+            content: |
+              [Unit]
+              Description=containerd container runtime
+              Documentation=https://containerd.io
+              After=network.target local-fs.target
+              [Service]
+              ExecStartPre=-/sbin/modprobe overlay
+              ExecStart=/usr/local/bin/containerd
+              Delegate=yes
+              KillMode=process
+              Restart=always
+              RestartSec=5
+              LimitNOFILE=infinity
+              [Install]
+              WantedBy=multi-user.target
+        - ansible.builtin.template:
+            src: ../templates/kubelet.service.j2
+            dest: /usr/local/lib/systemd/system/kubelet.service
+            mode: '0644'
+        - ansible.builtin.systemd_service:
+            daemon_reload: true
+
+    - name: Create containerd configuration directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /etc/containerd
+        - /etc/containerd/certs.d
+
+    - name: Create containerd registry mirror directories
+      ansible.builtin.file:
+        path: "/etc/containerd/certs.d/{{ registry_mirror.upstream }}"
+        state: directory
+        mode: '0755'
+      loop: "{{ containerd_registry_mirrors }}"
+      loop_control:
+        loop_var: registry_mirror
+
+    - name: Configure containerd registry mirrors
+      ansible.builtin.template:
+        src: ../templates/registry-hosts.toml.j2
+        dest: "/etc/containerd/certs.d/{{ registry_mirror.upstream }}/hosts.toml"
+        mode: '0644'
+      loop: "{{ containerd_registry_mirrors }}"
+      loop_control:
+        loop_var: registry_mirror
+      notify: Restart containerd
+
+    - name: Configure containerd
+      ansible.builtin.template:
+        src: ../templates/config.toml.j2
+        dest: "{{ containerd_config }}"
+        mode: '0644'
+      notify: Restart containerd
+
+    - name: Apply runtime configuration before kubeadm
+      ansible.builtin.meta: flush_handlers
+
+    - name: Enable containerd and kubelet
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+      loop: [containerd, kubelet]
+
+  handlers:
+    - name: Restart chrony
+      ansible.builtin.systemd_service:
+        name: chrony
+        enabled: true
+        state: restarted
+    - name: Restart containerd
+      ansible.builtin.systemd_service:
+        name: containerd
+        state: restarted
+
+- name: Copy cluster add-ons to the first control-plane only
+  hosts: control_plane[0]
+  become: true
+  tasks:
+    - name: Copy Helm
+      ansible.builtin.copy:
+        src: "{{ data_dir }}/tools/helm"
+        dest: "{{ bundle_root }}/tools/helm"
+        mode: '0755'
+    - name: Copy charts and manifests
+      ansible.builtin.copy:
+        src: "{{ data_dir }}/{{ item }}/"
+        dest: "{{ bundle_root }}/{{ item }}/"
+        mode: preserve
+      loop:
+        - repositories/registry/charts
+        - deploy/platform/manifests

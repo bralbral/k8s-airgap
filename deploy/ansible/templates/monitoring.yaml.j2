@@ -1,0 +1,288 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus-agent
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus-agent
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - nodes
+  - nodes/proxy
+  - pods
+  - services
+  - endpoints
+  verbs:
+  - get
+  - list
+  - watch
+- nonResourceURLs:
+  - /metrics
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus-agent
+subjects:
+- kind: ServiceAccount
+  name: prometheus-agent
+  namespace: monitoring
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kube-state-metrics
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kube-state-metrics
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - nodes
+  - pods
+  - namespaces
+  - persistentvolumes
+  - persistentvolumeclaims
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  - statefulsets
+  - daemonsets
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kube-state-metrics
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kube-state-metrics
+subjects:
+- kind: ServiceAccount
+  name: kube-state-metrics
+  namespace: monitoring
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-agent
+  namespace: monitoring
+data:
+  prometheus.yml: "global:\n  scrape_interval: 30s\n  evaluation_interval: 30s\n  external_labels:\n    cluster: airgap\n\
+    remote_write:\n- url: '{{ thanos_remote_write_url }}'\nscrape_configs:\n- job_name: agent\n  static_configs:\n  - targets:\n\
+    \    - localhost:9090\n- job_name: kube-state-metrics\n  static_configs:\n  - targets:\n    - kube-state-metrics:8080\n\
+    - job_name: kubelet\n  scheme: https\n  tls_config: &id001\n    ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n\
+    \  authorization: &id002\n    credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token\n  kubernetes_sd_configs:\
+    \ &id003\n  - role: node\n  relabel_configs:\n  - target_label: __address__\n    replacement: kubernetes.default.svc:443\n\
+    \  - source_labels:\n    - __meta_kubernetes_node_name\n    target_label: __metrics_path__\n    replacement: /api/v1/nodes/${1}/proxy/metrics\n\
+    \  - source_labels:\n    - __meta_kubernetes_node_name\n    target_label: instance\n- job_name: cadvisor\n  scheme: https\n\
+    \  tls_config: *id001\n  authorization: *id002\n  kubernetes_sd_configs: *id003\n  relabel_configs:\n  - target_label:\
+    \ __address__\n    replacement: kubernetes.default.svc:443\n  - source_labels:\n    - __meta_kubernetes_node_name\n  \
+    \  target_label: __metrics_path__\n    replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor\n  - source_labels:\n  \
+    \  - __meta_kubernetes_node_name\n    target_label: instance\n- job_name: node-exporter\n  kubernetes_sd_configs:\n  -\
+    \ role: pod\n    namespaces:\n      names:\n      - monitoring\n  relabel_configs:\n  - source_labels:\n    - __meta_kubernetes_pod_label_app\n\
+    \    action: keep\n    regex: node-exporter\n  - source_labels:\n    - __meta_kubernetes_pod_container_port_number\n \
+    \   action: keep\n    regex: '9100'\n  - source_labels:\n    - __meta_kubernetes_pod_node_name\n    target_label: instance\n"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-agent
+  namespace: monitoring
+spec:
+  clusterIP: None
+  selector:
+    app: prometheus-agent
+  ports:
+  - name: http
+    port: 9090
+    targetPort: http
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: prometheus-agent
+  namespace: monitoring
+spec:
+  serviceName: prometheus-agent
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus-agent
+  template:
+    metadata:
+      labels:
+        app: prometheus-agent
+    spec:
+      serviceAccountName: prometheus-agent
+      nodeSelector:
+        node-role.kubernetes.io/worker: ''
+      securityContext:
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+      containers:
+      - name: agent
+        image: '{{ prometheus_image }}'
+        args:
+        - --agent
+        - --config.file=/etc/prometheus/prometheus.yml
+        - --storage.agent.path=/prometheus
+        - --storage.agent.retention.max-time=24h
+        - --web.listen-address=:9090
+        ports:
+        - name: http
+          containerPort: 9090
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            memory: 512Mi
+        volumeMounts:
+        - name: config
+          mountPath: /etc/prometheus
+          readOnly: true
+        - name: wal
+          mountPath: /prometheus
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: http
+          initialDelaySeconds: 5
+      volumes:
+      - name: config
+        configMap:
+          name: prometheus-agent
+  volumeClaimTemplates:
+  - metadata:
+      name: wal
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      storageClassName: local-path
+      resources:
+        requests:
+          storage: 2Gi
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: node-exporter
+  template:
+    metadata:
+      labels:
+        app: node-exporter
+    spec:
+      hostNetwork: true
+      hostPID: true
+      dnsPolicy: ClusterFirstWithHostNet
+      tolerations:
+      - operator: Exists
+      containers:
+      - name: node-exporter
+        image: '{{ node_exporter_image }}'
+        args:
+        - --path.rootfs=/host
+        - --path.procfs=/host/proc
+        - --path.sysfs=/host/sys
+        ports:
+        - name: metrics
+          containerPort: 9100
+        resources:
+          requests:
+            cpu: 25m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+        volumeMounts:
+        - name: root
+          mountPath: /host
+          readOnly: true
+          mountPropagation: HostToContainer
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+      volumes:
+      - name: root
+        hostPath:
+          path: /
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kube-state-metrics
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kube-state-metrics
+  template:
+    metadata:
+      labels:
+        app: kube-state-metrics
+    spec:
+      serviceAccountName: kube-state-metrics
+      containers:
+      - name: kube-state-metrics
+        image: '{{ kube_state_metrics_image }}'
+        args:
+        - --resources=nodes,pods,namespaces,persistentvolumes,persistentvolumeclaims,deployments,statefulsets,daemonsets
+        ports:
+        - name: metrics
+          containerPort: 8080
+        resources:
+          requests:
+            cpu: 25m
+            memory: 64Mi
+          limits:
+            memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kube-state-metrics
+  namespace: monitoring
+spec:
+  selector:
+    app: kube-state-metrics
+  ports:
+  - name: metrics
+    port: 8080
+    targetPort: metrics

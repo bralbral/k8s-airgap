@@ -1,0 +1,99 @@
+---
+name: airgap-monitoring
+x-thanos: &thanos
+  image: quay.io/thanos/thanos:v0.39.2
+  restart: unless-stopped
+  user: "0:0"
+x-object-store: &object-store |
+  type: S3
+  config:
+    bucket: thanos
+    endpoint: ${MINIO_ENDPOINT:-10.10.0.5:9000}
+    access_key: |-
+      ${MINIO_ACCESS_KEY:-minioadmin}
+    secret_key: |-
+      ${MINIO_SECRET_KEY:-Airgap2026!}
+    insecure: true
+services:
+  receive:
+    <<: *thanos
+    command:
+      - receive
+      - --tsdb.path=/data
+      - --tsdb.retention=24h
+      - --tsdb.min-block-duration=2h
+      - --tsdb.max-block-duration=2h
+      - --label=receive="stand-01"
+      - --remote-write.address=0.0.0.0:10908
+      - --http-address=0.0.0.0:10902
+      - --grpc-address=0.0.0.0:10901
+      - --objstore.config
+      - *object-store
+    ports: ["${BIND_ADDRESS:-0.0.0.0}:10908:10908"]
+    volumes: [/stage/thanos/receive:/data]
+  store:
+    <<: *thanos
+    command:
+      - store
+      - --data-dir=/data
+      - --objstore.config
+      - *object-store
+      - --http-address=0.0.0.0:10902
+      - --grpc-address=0.0.0.0:10901
+    volumes: [/stage/thanos/store:/data]
+  compact:
+    <<: *thanos
+    command:
+      - compact
+      - --data-dir=/data
+      - --objstore.config
+      - *object-store
+      - --wait
+      - --retention.resolution-raw=30d
+      - --retention.resolution-5m=90d
+      - --retention.resolution-1h=365d
+    volumes: [/stage/thanos/compact:/data]
+  query:
+    <<: *thanos
+    command:
+      - query
+      - --http-address=0.0.0.0:10902
+      - --endpoint=receive:10901
+      - --endpoint=store:10901
+    ports: ["${BIND_ADDRESS:-0.0.0.0}:10902:10902"]
+  postgres:
+    image: postgres:17.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: grafana
+      POSTGRES_USER: grafana
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-Airgap2026!}
+    volumes: [/stage/grafana/postgres:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U grafana -d grafana]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+  grafana:
+    image: grafana/grafana:12.2.0
+    restart: unless-stopped
+    user: "0:0"
+    environment:
+      GF_DATABASE_TYPE: postgres
+      GF_DATABASE_HOST: postgres:5432
+      GF_DATABASE_NAME: grafana
+      GF_DATABASE_USER: grafana
+      GF_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-Airgap2026!}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-Airgap2026!}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+    ports: ["${BIND_ADDRESS:-0.0.0.0}:3000:3000"]
+    volumes:
+      - /stage/grafana/data:/var/lib/grafana
+      - ./provisioning:/etc/grafana/provisioning:ro
+      - ./dashboards:/etc/grafana/dashboards:ro
+    depends_on:
+      postgres:
+        condition: service_healthy

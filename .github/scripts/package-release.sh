@@ -23,15 +23,14 @@ archive() {
 
 archive bootstrap \
   manifest.yaml manifest.env SHA256SUMS README.md \
-  cluster-defaults.yaml config deploy/scripts \
+  config deploy/scripts \
   repositories/registry/mapping.yaml \
   repositories/registry/images/images.txt \
   repositories/registry/images/groups
-archive automation deploy/nodes deploy/platform/manifests
-archive apt-debian12-amd64 repositories/apt
-archive tools-linux-amd64 --exclude='tools/windows-amd64' tools
-archive tools-windows-amd64 tools/windows-amd64
-archive harbor-offline deploy/infrastructure
+archive automation deploy/nodes deploy/platform
+archive packages-debian12-amd64 packages
+archive tools-linux-amd64 tools
+archive infrastructure deploy/infrastructure
 archive charts-platform repositories/registry/charts
 
 create_image_assets() {
@@ -80,7 +79,7 @@ create_image_assets kubernetes
 create_image_assets networking
 create_image_assets storage
 create_image_assets platform
-create_image_assets extra
+create_image_assets infrastructure
 
 cp "${staging_dir}/manifest.yaml" "${release_dir}/bundle-manifest.yaml"
 cp "${staging_dir}/deploy/scripts/unpack-release.sh" "${release_dir}/unpack-release.sh"

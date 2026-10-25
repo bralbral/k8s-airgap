@@ -1,0 +1,97 @@
+{
+  "uid": "airgap",
+  "title": "Airgap Kubernetes",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Scrape targets up",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "thanos"
+      },
+      "targets": [
+        {
+          "expr": "sum by (job) (up{cluster=\"airgap\"})",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 2,
+      "title": "Node CPU usage %",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "thanos"
+      },
+      "targets": [
+        {
+          "expr": "100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\",cluster=\"airgap\"}[5m])))",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 3,
+      "title": "Node memory usage %",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "thanos"
+      },
+      "targets": [
+        {
+          "expr": "100 * (1 - node_memory_MemAvailable_bytes{cluster=\"airgap\"} / node_memory_MemTotal_bytes{cluster=\"airgap\"})",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 4,
+      "title": "Running pods",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "thanos"
+      },
+      "targets": [
+        {
+          "expr": "sum(kube_pod_status_phase{cluster=\"airgap\",phase=\"Running\"})",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      }
+    }
+  ]
+}

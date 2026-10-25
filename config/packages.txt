@@ -1,17 +1,15 @@
-# A minimal Debian 12 base system is a prerequisite.
-ansible-core
+# Debian 12/amd64 prerequisites. Python and sudo must already exist on the VMs.
 ca-certificates
-curl
 chrony
 conntrack
-docker.io
-socat
+curl
+ethtool
+iproute2
 ipset
 iptables
 nftables
-iproute2
-ethtool
-nfs-common
 python3
 rsync
+socat
+sudo
 util-linux

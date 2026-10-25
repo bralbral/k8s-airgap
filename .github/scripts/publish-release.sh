@@ -37,15 +37,9 @@ trap 'rm -f "${notes_file}"' EXIT
   echo "| Kubernetes | ${KUBERNETES_VERSION} |"
   echo "| containerd | ${CONTAINERD_VERSION} |"
   echo "| Cilium | ${CILIUM_CHART_VERSION} |"
-  echo "| NFS CSI Driver | ${NFS_CSI_CHART_VERSION} |"
-  echo "| Metrics Server chart | ${METRICS_SERVER_CHART_VERSION} |"
-  echo "| cert-manager chart | ${CERT_MANAGER_CHART_VERSION} |"
   echo "| Argo CD chart | ${ARGO_CD_CHART_VERSION} |"
   echo "| Harbor | ${HARBOR_VERSION} |"
-  echo "| Vault | ${VAULT_VERSION} |"
-  echo "| Docker Compose | ${DOCKER_COMPOSE_VERSION} |"
   echo "| Helm | ${HELM_VERSION} |"
-  echo "| K9s | ${K9S_VERSION} |"
   echo
   echo "## Assets"
   echo

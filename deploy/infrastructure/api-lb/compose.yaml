@@ -1,0 +1,9 @@
+---
+name: airgap-api-lb
+services:
+  haproxy:
+    image: haproxy:3.2.1-alpine
+    restart: unless-stopped
+    ports: ["${BIND_ADDRESS:-0.0.0.0}:6443:6443"]
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
