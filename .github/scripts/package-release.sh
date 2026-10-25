@@ -27,7 +27,7 @@ archive bootstrap \
   repositories/registry/mapping.yaml \
   repositories/registry/images/images.txt \
   repositories/registry/images/groups
-archive automation deploy/nodes deploy/platform
+archive automation deploy/ansible deploy/platform
 archive packages-debian12-amd64 packages
 archive tools-linux-amd64 tools
 archive infrastructure deploy/infrastructure
