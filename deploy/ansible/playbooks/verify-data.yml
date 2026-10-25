@@ -5,6 +5,8 @@
   become: false
   gather_facts: false
   vars:
+    # Inventory ansible_become overrides the play-level become keyword.
+    ansible_become: false
     data_dir: "{{ playbook_dir }}/../../../data"
   tasks:
     - name: Check bundle checksums and required offline artifacts

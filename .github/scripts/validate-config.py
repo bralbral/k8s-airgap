@@ -48,7 +48,7 @@ for path in (ROOT / 'deploy/infrastructure').glob('*/compose.yaml'):
             assert (source.startswith('/stage/') or source.startswith('./')), (path, mount)
         assert not service.get('volumes_from'), path
 # Upstream images plus the user-selected MinIO image.
-allowed = ('amazon/aws-cli:', 'nginx:', 'cr.yandex/mirror/minio/minio:', 'haproxy:', 'quay.io/thanos/', 'postgres:', 'grafana/grafana:')
+allowed = ('cturra/ntp@sha256:', 'amazon/aws-cli:', 'nginx:', 'cr.yandex/mirror/minio/minio:', 'haproxy:', 'quay.io/thanos/', 'postgres:', 'grafana/grafana:')
 for path in (ROOT / 'deploy/infrastructure').glob('*/compose.yaml'):
     for service in yaml.safe_load(path.read_text())['services'].values():
         assert service['image'].startswith(allowed), service['image']
@@ -64,7 +64,7 @@ ci_images = set(module.compose_images(ROOT / 'deploy/infrastructure'))
 assert module.normalize(minio['image']) in ci_images
 assert 'docker.io/amazon/aws-cli:2.31.18' in ci_images
 assert 'docker.io/library/nginx:1.28.0-alpine' in ci_images
-assert len(ci_images) == 7, ci_images
+assert len(ci_images) == 8, ci_images
 assert module.normalize('busybox:1.37.0') == 'docker.io/library/busybox:1.37.0'
 assert module.normalize('quay.io/cilium/cilium:v1@sha256:abc') == 'quay.io/cilium/cilium:v1@sha256:abc'
 for bad in ('busybox', 'nginx:latest'):

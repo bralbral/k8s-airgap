@@ -24,3 +24,6 @@ kube_state_metrics_image: registry.k8s.io/kube-state-metrics/kube-state-metrics:
 # Debian package requests go to the infrastructure host.
 apt_repo_url: "http://{{ harbor_registry.split(':')[0] }}:8081"
 apt_proxy_enabled: true
+
+# The NTP container serves the infrastructure host clock.
+ntp_server: "{{ harbor_registry.split(':')[0] }}"

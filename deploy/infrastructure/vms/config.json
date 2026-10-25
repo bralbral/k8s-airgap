@@ -2,13 +2,15 @@
   "image": "vm/debian-12-genericcloud-amd64.qcow2",
   "directory": "/stage/vms",
   "infra_ip": "192.168.1.57",
-  "ntp_server": "10.10.0.1",
+  "ntp_server": "192.168.1.57",
   "network": {
     "name": "k8s-lab",
     "bridge": "virbr-k8s",
     "subnet": "10.10.0.0/24",
     "gateway": "10.10.0.1",
-    "dns": ["10.10.0.1"]
+    "dns": [
+      "10.10.0.1"
+    ]
   },
   "metallb_pool": "10.10.0.240-10.10.0.250",
   "argocd_ip": "10.10.0.240",
@@ -22,10 +24,39 @@
     "disk_gib": 30
   },
   "nodes": [
-    {"name": "cp-01", "role": "control_plane", "ip": "10.10.0.11", "disk_gib": 15},
-    {"name": "cp-02", "role": "control_plane", "ip": "10.10.0.12", "disk_gib": 15},
-    {"name": "cp-03", "role": "control_plane", "ip": "10.10.0.13", "disk_gib": 15},
-    {"name": "worker-01", "role": "workers", "ip": "10.10.0.21", "cpu": 3, "ram_gib": 3, "disk_gib": 20},
-    {"name": "worker-02", "role": "workers", "ip": "10.10.0.22", "cpu": 3, "ram_gib": 3, "disk_gib": 20}
+    {
+      "name": "cp-01",
+      "role": "control_plane",
+      "ip": "10.10.0.11",
+      "disk_gib": 15
+    },
+    {
+      "name": "cp-02",
+      "role": "control_plane",
+      "ip": "10.10.0.12",
+      "disk_gib": 15
+    },
+    {
+      "name": "cp-03",
+      "role": "control_plane",
+      "ip": "10.10.0.13",
+      "disk_gib": 15
+    },
+    {
+      "name": "worker-01",
+      "role": "workers",
+      "ip": "10.10.0.21",
+      "cpu": 3,
+      "ram_gib": 3,
+      "disk_gib": 20
+    },
+    {
+      "name": "worker-02",
+      "role": "workers",
+      "ip": "10.10.0.22",
+      "cpu": 3,
+      "ram_gib": 3,
+      "disk_gib": 20
+    }
   ]
 }

@@ -269,7 +269,7 @@ def main():
     backend = '\n'.join(f"    server {n['name']} {n['ip']}:6443 check" for n in c['nodes'] if n['role'] == 'control_plane')
     write(root / 'haproxy-backend.txt', backend + '\n')
     print(f'VMs started. Inventory: {root}/hosts.yml; HAProxy backend: {root}/haproxy-backend.txt')
-    print(f"Before Kubernetes, ensure NTP server {c['ntp_server']} is reachable. No NTP server is installed by this script.")
+    print(f"Before Kubernetes, ensure NTP server {c['ntp_server']} is reachable. Start deploy/infrastructure/ntp/compose.yaml before Kubernetes installation.")
 
 
 if __name__ == '__main__':

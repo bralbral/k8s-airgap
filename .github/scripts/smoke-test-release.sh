@@ -7,7 +7,10 @@ trap 'rm -rf -- "${test_root}"' EXIT
 stage="${test_root}/stage"
 mkdir -p "${stage}/packages" \
   "${stage}/repositories/registry/"{images/archives,images/groups,charts/archives} "${stage}/tools"
-cp -R "${repo_root}/deploy" "${stage}/deploy"
+mkdir -p "${stage}/deploy"
+tar -C "${repo_root}/deploy" --exclude='./infrastructure/vms/vm' \
+  --exclude='.env' --exclude='hosts.yml' --exclude='__pycache__' -cf - . | \
+  tar -C "${stage}/deploy" -xf -
 cp -R "${repo_root}/config" "${stage}/config"
 cp "${repo_root}/README.md" "${stage}/README.md"
 cp "${repo_root}/config/versions.env" "${stage}/manifest.env"

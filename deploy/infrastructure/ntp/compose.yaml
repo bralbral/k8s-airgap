@@ -1,0 +1,17 @@
+---
+name: airgap-ntp
+services:
+  ntp:
+    image: cturra/ntp@sha256:7224d4e7c7833aabbcb7dd70c46c8a8dcccda365314c6db047b9b10403ace3bc
+    restart: unless-stopped
+    entrypoint: [/usr/sbin/chronyd]
+    command: [-d, -x, -f, /etc/chrony/chrony.conf]
+    ports:
+      - "${BIND_ADDRESS:-0.0.0.0}:123:123/udp"
+    volumes:
+      - ./chrony.conf:/etc/chrony/chrony.conf:ro
+    healthcheck:
+      test: [CMD, chronyc, -n, tracking]
+      interval: 15s
+      timeout: 5s
+      retries: 5

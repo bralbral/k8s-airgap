@@ -8,7 +8,7 @@ x-object-store: &object-store |
   type: S3
   config:
     bucket: thanos
-    endpoint: ${MINIO_ENDPOINT:-10.10.0.5:9000}
+    endpoint: ${MINIO_ENDPOINT:-192.168.1.57:9000}
     access_key: |-
       ${MINIO_ACCESS_KEY:-minioadmin}
     secret_key: |-

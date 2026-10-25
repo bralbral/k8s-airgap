@@ -4,15 +4,15 @@ all:
     ansible_user: deploy
     ansible_become: true
     # HAProxy runs on the external infrastructure host.
-    control_plane_endpoint: 10.10.0.5:6443
-    ntp_server: 10.10.0.1
-    apt_repo_url: http://10.10.0.5:8081
-    harbor_registry: 10.10.0.5:8080
+    control_plane_endpoint: 192.168.1.57:6443
+    ntp_server: 192.168.1.57
+    apt_repo_url: http://192.168.1.57:8081
+    harbor_registry: 192.168.1.57:8080
     harbor_plain_http: true
     harbor_skip_tls_verify: false
     metallb_ip_address_pool: 10.10.0.240-10.10.0.250
     argocd_ip: 10.10.0.240
-    thanos_remote_write_url: http://10.10.0.5:10908/api/v1/receive
+    thanos_remote_write_url: http://192.168.1.57:10908/api/v1/receive
   children:
     control_plane:
       hosts:

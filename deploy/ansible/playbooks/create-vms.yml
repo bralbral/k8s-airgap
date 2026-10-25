@@ -5,6 +5,8 @@
   gather_facts: false
   become: false
   vars:
+    # Run controller tasks as the current user even with the cluster inventory.
+    ansible_become: false
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
     vm_config_file: "{{ playbook_dir }}/../../infrastructure/vms/config.json"
     vm_helper: "{{ playbook_dir }}/../files/create-vms.py"

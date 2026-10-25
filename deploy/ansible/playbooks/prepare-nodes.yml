@@ -61,11 +61,23 @@
     - name: Install Debian packages strictly from the transferred files
       ansible.builtin.shell: |
         set -eu
-        apt-get -y --no-download --no-remove --no-install-recommends \
-          -o Dir::Etc::sourcelist=/dev/null \
-          -o Dir::Etc::sourceparts=- \
-          -o Dir::State::lists={{ (bundle_root ~ '/apt-lists') | quote }} \
-          install ./*.deb
+        offline_apt() {
+          apt-get -y --no-download --no-install-recommends \
+            -o Dir::Etc::sourcelist= \
+            -o Dir::Etc::sourceparts= \
+            -o Dir::Cache::archives={{ (bundle_root ~ '/debs') | quote }} \
+            -o Dir::State::lists={{ (bundle_root ~ '/apt-lists') | quote }} \
+            "$@" install "{{ bundle_root }}/debs/"*.deb
+        }
+        # Chrony replaces the default Debian time daemon in the same transaction.
+        # Reject any other removal before making changes.
+        plan=$(offline_apt --simulate)
+        unexpected=$(printf '%s\n' "$plan" | awk '$1 == "Remv" && $2 != "systemd-timesyncd" {print $2}')
+        if [ -n "$unexpected" ]; then
+          printf 'Refusing unexpected package removals: %s\n' "$unexpected" >&2
+          exit 1
+        fi
+        offline_apt
       args:
         chdir: "{{ bundle_root }}/debs"
       environment:
