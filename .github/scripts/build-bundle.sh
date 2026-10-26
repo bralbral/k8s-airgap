@@ -26,6 +26,7 @@ cp -R "${repo_root}/config" "${out_dir}/config"
 cp "${repo_root}/config/versions.env" "${out_dir}/manifest.env"
 cp "${repo_root}/config/registries.yaml" "${registry}/mapping.yaml"
 cp "${repo_root}/README.md" "${out_dir}/README.md"
+cp -R "${repo_root}/docs" "${out_dir}/docs"
 cp -R "${repo_root}/deploy/platform/charts/values" "${registry}/charts/values"
 cp "$(command -v crane)" "${tools_dir}/crane"
 # Collect infrastructure images, including MinIO.

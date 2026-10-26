@@ -1,0 +1,16 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: airgap-demo
+  annotations:
+    metallb.io/loadBalancerIPs: 10.10.0.241
+spec:
+  type: LoadBalancer
+  allocateLoadBalancerNodePorts: false
+  selector:
+    app: airgap-demo
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080

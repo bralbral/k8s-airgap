@@ -13,6 +13,7 @@ tar -C "${repo_root}/deploy" --exclude='./infrastructure/vms/vm' \
   tar -C "${stage}/deploy" -xf -
 cp -R "${repo_root}/config" "${stage}/config"
 cp "${repo_root}/README.md" "${stage}/README.md"
+cp -R "${repo_root}/docs" "${stage}/docs"
 cp "${repo_root}/config/versions.env" "${stage}/manifest.env"
 cp "${repo_root}/config/registries.yaml" "${stage}/repositories/registry/mapping.yaml"
 mkdir -p "${stage}/deploy/platform/manifests"

@@ -22,12 +22,12 @@ archive() {
 }
 
 archive bootstrap \
-  manifest.yaml manifest.env SHA256SUMS README.md \
+  manifest.yaml manifest.env SHA256SUMS README.md docs \
   config deploy/scripts \
   repositories/registry/mapping.yaml \
   repositories/registry/images/images.txt \
   repositories/registry/images/groups
-archive automation deploy/ansible deploy/platform
+archive automation deploy/ansible deploy/platform deploy/argocd
 archive packages-debian12-amd64 packages
 archive tools-linux-amd64 tools
 archive infrastructure deploy/infrastructure
