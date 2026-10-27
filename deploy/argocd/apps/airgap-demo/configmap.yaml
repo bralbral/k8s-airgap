@@ -12,6 +12,6 @@ data:
     </style></head><body><main><div class="eyebrow">Kubernetes / isolated environment</div>
     <h1>Приложение доставлено через GitOps</h1>
     <p>Эта страница — демонстрационное приложение. Манифесты поступают из Git-репозитория, контейнерный образ — из Harbor. Развёртыванием управляет Argo CD.</p>
-    <div class="badge">Версия демонстрации: v1</div>
+    <div class="badge">Версия демонстрации: v2</div>
     <div class="grid"><div class="card"><span>Delivery</span><strong>Argo CD</strong></div><div class="card"><span>Runtime</span><strong>BusyBox HTTP</strong></div><div class="card"><span>Exposure</span><strong>MetalLB</strong></div><div class="card"><span>Namespace</span><strong>demo</strong></div></div>
     </main></body></html>
