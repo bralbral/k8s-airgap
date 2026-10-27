@@ -288,7 +288,7 @@ sudo bash deploy/infrastructure/harbor/start.sh \
 Аргументы: адрес хоста, путь к архиву, необязательный каталог установки.
 Каталог по умолчанию — `/stage/harbor/installer/harbor`; он создаётся автоматически.
 Скрипт вызывает официальный `install.sh` и создаёт public-проекты
-`docker`, `ghcr`, `quay`, `k8s`. Данные registry и БД размещаются в
+`docker`, `ghcr`, `quay`, `k8s`, `charts`. Данные registry и БД размещаются в
 `/stage/harbor/data`, журналы — в `/stage/harbor/log`.
 Существующий `harbor.yml` сохраняется при повторном запуске.
 
@@ -312,20 +312,27 @@ NTP-контейнер Chrony использует готовый образ `ct
 объявляется локальным со stratum 10. Корректность времени хоста проверяется через
 `timedatectl status`; внешний UDP-порт `123` должен быть свободен.
 
-### 4.6. Импорт образов Kubernetes и дополнений
+### 4.6. Импорт образов и Helm-чартов
 
 ```bash
 read -rsp 'Harbor password: ' harbor_password; echo
 printf '%s' "$harbor_password" | ./data/tools/crane auth login \
   192.168.1.57:8080 --insecure --username admin --password-stdin
+printf '%s' "$harbor_password" | ./data/tools/helm registry login \
+  192.168.1.57:8080 --plain-http --username admin --password-stdin
 unset harbor_password
 bash deploy/scripts/import-images.sh --registry 192.168.1.57:8080 --insecure ./data
+bash deploy/scripts/import-charts.sh --registry 192.168.1.57:8080 --plain-http ./data
 ```
 
 Registry mapping: `docker.io → docker`, `ghcr.io → ghcr`, `quay.io → quay`,
 `registry.k8s.io → k8s`. Имена repositories сохраняются, включая `library/`.
 Containerd на нодах направляет запросы исходных registry в Harbor по HTTP.
-Helm charts устанавливаются из локальных архивов.
+Чарты Cilium, MetalLB и Argo CD загружаются из бандла в OCI-проект `charts`.
+Ansible устанавливает их из Harbor с фиксированными версиями. В UI Harbor:
+`Projects → charts → cilium / metallb / argo-cd` — артефакты и их версии.
+Для уже установленного Harbor проект `charts` создаётся один раз как Public
+через `Projects → New Project`; при новой установке его создаёт `start.sh`.
 
 ## 5. Создание VM и inventory
 
@@ -367,8 +374,14 @@ inventory. Другой config передаётся через `-e vm_config_fil
 Полное пересоздание удаляет VM из текущего списка и их данные:
 
 ```bash
-ansible-playbook -i localhost, deploy/ansible/playbooks/create-vms.yml -e vm_recreate=true
+ansible-playbook -i localhost, deploy/ansible/playbooks/create-vms.yml -e vm_recreate=true -e vm_become=true --ask-become-pass
 ```
+
+`vm_become=true` запускает операцию создания/пересоздания через sudo;
+`--ask-become-pass` запрашивает пароль пользователя инфраструктурного хоста.
+Это требуется для каталогов VM, принадлежащих root. Проверка конфигурации
+выполняется от текущего пользователя. Права на удаление каталогов проверяются
+до остановки VM.
 
 Для восстановления создания, прерванного до регистрации VM, применяется
 `-e vm_recover_incomplete=true`. Незавершённые каталоги сохраняются в резервную
@@ -566,7 +579,7 @@ HTTP, ConfigMap с HTML и сервис MetalLB **http://10.10.0.241**. Обра
 | [Демо-приложение](docs/demo.md) | Установка, проверка и изменение v1 → v2 через Git |
 | [Презентация PowerPoint](docs/presentation/k8s-airgap.pptx) | 14 слайдов с архитектурой и заметками докладчика |
 | [Презентация PDF](docs/presentation/k8s-airgap.pdf) | Версия для просмотра и показа |
-| [Сценарий видео](docs/video-script.md) | Команды установки с нуля на подготовленной инфраструктуре и проверки |
+| [Сценарий видео](docs/video-script.md) | Очистка стенда, установка инфраструктуры и кластера с нуля, проверки |
 
 Исходник презентации — `docs/presentation/build.py`; генерация требует
 `python-pptx`. Запись видео выполняется отдельно по сценарию, готовый ролик

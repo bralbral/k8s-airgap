@@ -3,10 +3,13 @@
   hosts: control_plane[0]
   become: true
   tasks:
-    - name: Install the local Argo CD chart
+    - name: Install Argo CD from Harbor
       ansible.builtin.command: >-
         {{ bundle_root }}/tools/helm upgrade --install argocd
-        {{ bundle_root }}/repositories/registry/charts/archives/argo-cd-{{ argocd_chart_version }}.tgz
+        oci://{{ harbor_registry }}/charts/argo-cd
+        --version {{ argocd_chart_version }}
+        {{ '--plain-http' if harbor_plain_http else '' }}
+        {{ '--insecure-skip-tls-verify' if harbor_skip_tls_verify else '' }}
         --kubeconfig /etc/kubernetes/admin.conf
         --namespace argocd --create-namespace --wait --timeout 10m
         --values {{ bundle_root }}/repositories/registry/charts/values/argo-cd.yaml

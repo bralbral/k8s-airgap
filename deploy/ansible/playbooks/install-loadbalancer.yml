@@ -3,10 +3,13 @@
   hosts: control_plane[0]
   become: true
   tasks:
-    - name: Install MetalLB from the local chart
+    - name: Install MetalLB from Harbor
       ansible.builtin.command: >-
         {{ bundle_root }}/tools/helm upgrade --install metallb
-        {{ bundle_root }}/repositories/registry/charts/archives/metallb-{{ metallb_version }}.tgz
+        oci://{{ harbor_registry }}/charts/metallb
+        --version {{ metallb_version }}
+        {{ '--plain-http' if harbor_plain_http else '' }}
+        {{ '--insecure-skip-tls-verify' if harbor_skip_tls_verify else '' }}
         --kubeconfig /etc/kubernetes/admin.conf
         --namespace metallb-system --create-namespace --wait --timeout 5m
       changed_when: true

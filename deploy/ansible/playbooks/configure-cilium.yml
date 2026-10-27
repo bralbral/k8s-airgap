@@ -6,7 +6,10 @@
     - name: Configure the requested number of Cilium operator replicas
       ansible.builtin.command: >-
         {{ bundle_root }}/tools/helm upgrade --install cilium
-        {{ bundle_root }}/repositories/registry/charts/archives/cilium-{{ cilium_chart_version }}.tgz
+        oci://{{ harbor_registry }}/charts/cilium
+        --version {{ cilium_chart_version }}
+        {{ '--plain-http' if harbor_plain_http else '' }}
+        {{ '--insecure-skip-tls-verify' if harbor_skip_tls_verify else '' }}
         --kubeconfig /etc/kubernetes/admin.conf
         --namespace kube-system --wait --timeout 10m
         --values {{ bundle_root }}/repositories/registry/charts/values/cilium.yaml

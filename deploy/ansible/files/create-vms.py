@@ -51,6 +51,20 @@ def require(condition, message):
         raise ValueError(message)
 
 
+def check_removal_permissions(folder):
+    """Check every directory before stopping any VM; files need no write access."""
+    hint = 'Retry create-vms.yml with -e vm_become=true --ask-become-pass.'
+    require(os.access(folder.parent, os.W_OK | os.X_OK),
+            f'Cannot remove {folder}: parent directory is not writable. {hint}')
+
+    def walk_error(error):
+        raise ValueError(f'Cannot inspect {folder}: {error}. {hint}') from error
+
+    for directory, _, _ in os.walk(folder, followlinks=False, onerror=walk_error):
+        require(os.access(directory, os.R_OK | os.W_OK | os.X_OK),
+                f'Cannot remove files in {directory}: insufficient directory permissions. {hint}')
+
+
 def load(path):
     c = json.loads(path.read_text())
     base = path.parent
@@ -188,6 +202,7 @@ def main():
                             for s in sources), 'VM has disks outside its directory; refusing recreation.')
             if folder.exists():
                 require(folder.is_dir(), f'Not a directory: {folder}')
+                check_removal_permissions(folder)
                 # An unrelated VM must not lose a shared disk.
                 for other in domains - {n['name']}:
                     other_xml = ET.fromstring(run('virsh', 'dumpxml', other))
@@ -220,6 +235,7 @@ def main():
             domains.remove(name)
         if folder.exists():
             shutil.rmtree(folder)
+            CHANGED = True
     for folder in incomplete:
         backup = folder.with_name(folder.name + '.incomplete-' + datetime.now().strftime('%Y%m%d-%H%M%S-%f'))
         folder.rename(backup)
@@ -265,7 +281,7 @@ def main():
                  'harbor_registry': f'{infra}:8080', 'harbor_plain_http': True, 'harbor_skip_tls_verify': False,
                  'thanos_remote_write_url': f'http://{infra}:10908/api/v1/receive',
                  'metallb_ip_address_pool': c['metallb_pool'], 'argocd_ip': c['argocd_ip'], 'ntp_server': c['ntp_server']}
-    write(root / 'hosts.yml', json.dumps({'all': {'vars': variables, 'children': children}}, indent=2))
+    write(root / 'hosts.yml', json.dumps({'all': {'vars': variables, 'children': children}}, indent=2) + '\n')
     backend = '\n'.join(f"    server {n['name']} {n['ip']}:6443 check" for n in c['nodes'] if n['role'] == 'control_plane')
     write(root / 'haproxy-backend.txt', backend + '\n')
     print(f'VMs started. Inventory: {root}/hosts.yml; HAProxy backend: {root}/haproxy-backend.txt')

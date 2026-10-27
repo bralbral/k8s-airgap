@@ -13,6 +13,7 @@
     vm_recreate: false
     vm_recover_incomplete: false
     vm_check_only: false
+    vm_become: false
   tasks:
     - name: Validate mutually exclusive VM modes
       ansible.builtin.assert:
@@ -37,6 +38,8 @@
         msg: "{{ (vm_validation.stdout | from_json).log.splitlines() }}"
 
     - name: Create or start virtual machines
+      vars:
+        ansible_become: "{{ vm_become | bool }}"
       ansible.builtin.command:
         argv: >-
           {{ [ansible_playbook_python, vm_helper, vm_config_file, '--json']

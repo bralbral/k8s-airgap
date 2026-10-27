@@ -80,7 +80,7 @@ while True:
         raise SystemExit('Harbor did not become healthy within 180 seconds; projects were not initialized.')
     time.sleep(2)
 
-for name in ('docker', 'ghcr', 'quay', 'k8s'):
+for name in ('docker', 'ghcr', 'quay', 'k8s', 'charts'):
     try:
         project = request('/projects/' + name)
     except urllib.error.HTTPError as error:
